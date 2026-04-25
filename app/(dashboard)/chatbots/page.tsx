@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { Bot, Plus, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -14,9 +15,11 @@ export default function ChatbotsPage() {
             </p>
           </div>
         </div>
-        <Button className="gap-2">
-          <Plus className="size-4" />
-          New Chatbot
+        <Button asChild className="gap-2">
+          <Link href="/chatbots/customize">
+            <Plus className="size-4" />
+            New Chatbot
+          </Link>
         </Button>
       </div>
 
@@ -26,9 +29,11 @@ export default function ChatbotsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Create an AI chatbot, connect a knowledge base, and embed it anywhere.
         </p>
-        <Button className="mt-6 gap-2">
-          <Plus className="size-4" />
-          Create your first chatbot
+        <Button asChild className="mt-6 gap-2">
+          <Link href="/chatbots/customize">
+            <Plus className="size-4" />
+            Create your first chatbot
+          </Link>
         </Button>
       </div>
     </div>
