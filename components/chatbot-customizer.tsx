@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Bot, Send, Circle, Check, RefreshCw } from "lucide-react"
+import { useMemo, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
+import { Bot, Send, Circle, Check, RefreshCw, AlertCircle, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -9,123 +10,29 @@ import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-
-// ─── Personality ──────────────────────────────────────────────────────────────
-
-export type Personality = "friendly" | "professional" | "strict"
-
-interface PersonalityMeta {
-  label: string
-  badge: string
-  description: string
-}
-
-const PERSONALITY_META: Record<Personality, PersonalityMeta> = {
-  friendly: {
-    label: "Friendly",
-    badge: "😊",
-    description: "Warm, casual, and encouraging",
-  },
-  professional: {
-    label: "Professional",
-    badge: "💼",
-    description: "Formal, precise, and efficient",
-  },
-  strict: {
-    label: "Strict",
-    badge: "🎯",
-    description: "Focused, direct, and on-topic only",
-  },
-}
-
-export function generateSystemPrompt(botName: string, personality: Personality): string {
-  const name = botName.trim() || "Support Bot"
-
-  switch (personality) {
-    case "friendly":
-      return `You are ${name}, a friendly and enthusiastic support assistant.
-
-Your tone is warm, approachable, and encouraging. You make users feel heard and valued.
-
-Guidelines:
-- Greet users warmly; use their name when possible
-- Acknowledge frustrations with empathy before offering solutions
-- Use everyday language — avoid jargon
-- Occasionally use relevant emojis to keep the tone light
-- Keep answers concise but kind
-- Always end with an offer to help further`
-
-    case "professional":
-      return `You are ${name}, a professional customer support representative.
-
-Your communication is formal, precise, and respects the user's time.
-
-Guidelines:
-- Use formal language and correct grammar at all times
-- Be concise — complete answers without unnecessary elaboration
-- Do not use emojis, slang, or overly casual expressions
-- Address each point in the user's query systematically
-- If escalation is needed, provide clear next steps and timelines
-- Close each interaction professionally`
-
-    case "strict":
-      return `You are ${name}, a focused support assistant with a strictly defined scope.
-
-You answer only questions directly related to the product or service. You do not engage in small talk or requests outside your domain.
-
-Guidelines:
-- Answer only questions within your designated scope
-- Refuse off-topic requests firmly: "I can only assist with product-related queries."
-- Provide direct, factual answers — no filler or pleasantries
-- Do not speculate or answer hypotheticals outside your knowledge base
-- If a question is out of scope, state clearly what you can help with
-- Never make exceptions to these boundaries`
-  }
-}
-
-// ─── Preview conversation per personality ────────────────────────────────────
-
-type Message = { role: "bot" | "user"; text: string }
-
-const PREVIEW_CONVERSATIONS: Record<Personality, Message[]> = {
-  friendly: [
-    { role: "user", text: "I need help with my subscription." },
-    {
-      role: "bot",
-      text: "Of course, I'd love to help! 😊 Which plan are you currently on?",
-    },
-    { role: "user", text: "I'm on the Pro plan." },
-    {
-      role: "bot",
-      text: "Awesome — Pro users get priority support! What can I sort out for you today? 🎉",
-    },
-  ],
-  professional: [
-    { role: "user", text: "I need help with my subscription." },
-    {
-      role: "bot",
-      text: "I can assist you with that. Please confirm which subscription plan you are currently enrolled in.",
-    },
-    { role: "user", text: "I'm on the Pro plan." },
-    {
-      role: "bot",
-      text: "Thank you. Please specify the issue you are experiencing with your Pro subscription.",
-    },
-  ],
-  strict: [
-    { role: "user", text: "I need help with my subscription." },
-    { role: "bot", text: "State your account issue." },
-    { role: "user", text: "I'm on the Pro plan." },
-    {
-      role: "bot",
-      text: "Pro plan queries accepted. Describe the specific problem.",
-    },
-  ],
-}
+import {
+  type Personality,
+  PERSONALITY_META,
+  PERSONALITY_OPTIONS,
+  PREVIEW_CONVERSATIONS,
+  DEFAULT_PERSONALITY,
+  generateSystemPrompt,
+} from "@/lib/chatbot-config"
+import { saveChatbot } from "@/app/actions/chatbot"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Config {
+  id?: string
+  botName: string
+  primaryColor: string
+  welcomeMessage: string
+  personality: Personality
+  systemPrompt: string
+}
+
+export interface InitialChatbotData {
+  id: string
   botName: string
   primaryColor: string
   welcomeMessage: string
@@ -231,22 +138,27 @@ function ColorField({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const DEFAULT_PERSONALITY: Personality = "friendly"
-
-export function ChatbotCustomizer() {
-  const [config, setConfig] = useState<Config>({
+function defaultConfig(initial?: InitialChatbotData): Config {
+  if (initial) return initial
+  return {
     botName: "Support Bot",
     primaryColor: "#6366f1",
     welcomeMessage: "Hi! How can I help you today? 👋",
     personality: DEFAULT_PERSONALITY,
     systemPrompt: generateSystemPrompt("Support Bot", DEFAULT_PERSONALITY),
-  })
-  const [saved, setSaved] = useState(false)
+  }
+}
+
+export function ChatbotCustomizer({ initialData }: { initialData?: InitialChatbotData }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [config, setConfig] = useState<Config>(defaultConfig(initialData))
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle")
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const update = <K extends keyof Config>(key: K, value: Config[K]) =>
     setConfig((c) => ({ ...c, [key]: value }))
 
-  // Switching personality auto-regenerates the prompt
   const handlePersonalityChange = (p: Personality) => {
     setConfig((c) => ({
       ...c,
@@ -255,12 +167,43 @@ export function ChatbotCustomizer() {
     }))
   }
 
-  // Regenerate from current botName + personality (for the button)
   const regeneratePrompt = () => {
     setConfig((c) => ({
       ...c,
       systemPrompt: generateSystemPrompt(c.botName, c.personality),
     }))
+  }
+
+  const handleSave = () => {
+    setSaveState("idle")
+    setErrorMsg(null)
+
+    startTransition(async () => {
+      const result = await saveChatbot({
+        id: config.id,
+        name: config.botName,
+        primaryColor: config.primaryColor,
+        welcomeMessage: config.welcomeMessage,
+        personality: config.personality,
+        systemPrompt: config.systemPrompt,
+      })
+
+      if (!result.ok) {
+        setSaveState("error")
+        setErrorMsg(result.error)
+        return
+      }
+
+      setSaveState("saved")
+
+      if (!config.id) {
+        // New chatbot — update URL to edit mode
+        setConfig((c) => ({ ...c, id: result.chatbotId }))
+        router.replace(`/chatbots/customize?id=${result.chatbotId}`)
+      }
+
+      setTimeout(() => setSaveState("idle"), 2500)
+    })
   }
 
   const primaryColor = isValidHex(config.primaryColor) ? config.primaryColor : "#6366f1"
@@ -270,17 +213,14 @@ export function ChatbotCustomizer() {
   const previewMessages = PREVIEW_CONVERSATIONS[config.personality]
   const meta = PERSONALITY_META[config.personality]
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
-
   return (
     <div className="flex min-h-full flex-col gap-8 p-8 lg:flex-row lg:items-start">
       {/* ── Left: Form ──────────────────────────────────────────────────── */}
       <div className="flex w-full flex-col gap-6 lg:max-w-sm xl:max-w-md">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Chatbot Customizer</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {config.id ? "Edit Chatbot" : "Chatbot Customizer"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Configure your chatbot&apos;s identity, appearance, and behavior.
           </p>
@@ -320,7 +260,7 @@ export function ChatbotCustomizer() {
                 value={config.welcomeMessage}
                 onChange={(e) => update("welcomeMessage", e.target.value)}
                 placeholder="Hi! How can I help you today?"
-                className="min-h-[80px] resize-none"
+                className="min-h-20 resize-none"
               />
               <p className="text-xs text-muted-foreground">
                 Shown when users first open the chat.
@@ -335,7 +275,6 @@ export function ChatbotCustomizer() {
             <CardTitle>Behavior &amp; Personality</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-5">
-            {/* Personality picker */}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="personality">AI Personality</Label>
               <Select
@@ -343,14 +282,13 @@ export function ChatbotCustomizer() {
                 value={config.personality}
                 onChange={(e) => handlePersonalityChange(e.target.value as Personality)}
               >
-                {(Object.keys(PERSONALITY_META) as Personality[]).map((p) => (
+                {PERSONALITY_OPTIONS.map((p) => (
                   <option key={p} value={p}>
                     {PERSONALITY_META[p].badge} {PERSONALITY_META[p].label} — {PERSONALITY_META[p].description}
                   </option>
                 ))}
               </Select>
 
-              {/* Personality badge strip */}
               <div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2">
                 <span className="text-base">{meta.badge}</span>
                 <div>
@@ -360,7 +298,6 @@ export function ChatbotCustomizer() {
               </div>
             </div>
 
-            {/* System prompt */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <Label htmlFor="system-prompt">System Prompt</Label>
@@ -378,7 +315,7 @@ export function ChatbotCustomizer() {
                 id="system-prompt"
                 value={config.systemPrompt}
                 onChange={(e) => update("systemPrompt", e.target.value)}
-                className="min-h-[180px] resize-y font-mono text-xs leading-relaxed"
+                className="min-h-45 resize-y font-mono text-xs leading-relaxed"
               />
               <p className="text-xs text-muted-foreground">
                 Sent as the{" "}
@@ -391,14 +328,27 @@ export function ChatbotCustomizer() {
           </CardContent>
         </Card>
 
+        {saveState === "error" && errorMsg && (
+          <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+            <AlertCircle className="size-4 shrink-0" />
+            {errorMsg}
+          </div>
+        )}
+
         <Button
           onClick={handleSave}
+          disabled={isPending}
           className={cn(
             "w-full gap-2 transition-all",
-            saved && "bg-emerald-600 hover:bg-emerald-600"
+            saveState === "saved" && "bg-emerald-600 hover:bg-emerald-600"
           )}
         >
-          {saved ? (
+          {isPending ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Saving…
+            </>
+          ) : saveState === "saved" ? (
             <>
               <Check className="size-4" /> Saved
             </>
