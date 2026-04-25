@@ -1,0 +1,165 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum KnowledgeSourceType {
+  WEB
+  FILE
+  TEXT
+}
+
+enum KnowledgeSourceStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum ChatbotStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members          WorkspaceMember[]
+  knowledgeSources KnowledgeSource[]
+  chatbots         Chatbot[]
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships WorkspaceMember[]
+}
+
+// Join table — one user can belong to many workspaces with different roles
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  role        UserRole  @default(MEMBER)
+  joinedAt    DateTime  @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+model KnowledgeSource {
+  id        String                @id @default(cuid())
+  name      String
+  type      KnowledgeSourceType
+  status    KnowledgeSourceStatus @default(PENDING)
+
+  // WEB: stores the URL
+  // FILE: stores a storage path / object key
+  // TEXT: stores raw text content
+  sourceUrl String?
+  filePath  String?
+  content   String?
+
+  // Metadata returned after processing (chunk count, token count, etc.)
+  meta Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  chatbotSources ChatbotKnowledgeSource[]
+  chunks         DocumentChunk[]
+
+  @@index([workspaceId])
+  @@index([type])
+}
+
+// Vector chunks produced from a KnowledgeSource after processing.
+// The embedding column uses pgvector — Prisma treats it as Unsupported.
+model DocumentChunk {
+  id         String   @id @default(cuid())
+  content    String
+  // 1536-dimension vector from text-embedding-3-small
+  embedding  Unsupported("vector(1536)")?
+  chunkIndex Int
+  createdAt  DateTime @default(now())
+
+  knowledgeSourceId String
+  knowledgeSource   KnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeSourceId])
+}
+
+model Chatbot {
+  id     String        @id @default(cuid())
+  name   String
+  status ChatbotStatus @default(DRAFT)
+
+  // System prompt and behaviour settings
+  systemPrompt    String?
+  welcomeMessage  String?
+
+  // Visual + behaviour config stored as JSON:
+  // { primaryColor, backgroundColor, fontFamily, avatarUrl,
+  //   temperature, maxTokens, ... }
+  config Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  knowledgeSources ChatbotKnowledgeSource[]
+
+  @@index([workspaceId])
+  @@index([status])
+}
+
+// Many-to-many: a chatbot can have multiple knowledge sources
+model ChatbotKnowledgeSource {
+  chatbotId         String
+  chatbot           Chatbot         @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  knowledgeSourceId String
+  knowledgeSource   KnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade)
+
+  attachedAt DateTime @default(now())
+
+  @@id([chatbotId, knowledgeSourceId])
+  @@index([knowledgeSourceId])
+}
