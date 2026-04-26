@@ -37,6 +37,17 @@ enum ChatbotStatus {
   ARCHIVED
 }
 
+enum SessionStatus {
+  AI_ACTIVE
+  HUMAN_REQUIRED
+}
+
+enum MessageRole {
+  user
+  assistant
+  human_agent
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model Workspace {
@@ -49,6 +60,7 @@ model Workspace {
   members          WorkspaceMember[]
   knowledgeSources KnowledgeSource[]
   chatbots         Chatbot[]
+  sessions         ChatSession[]
 }
 
 model User {
@@ -145,9 +157,47 @@ model Chatbot {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   knowledgeSources ChatbotKnowledgeSource[]
+  sessions         ChatSession[]
 
   @@index([workspaceId])
   @@index([status])
+}
+
+model ChatSession {
+  id        String        @id @default(cuid())
+  status    SessionStatus @default(AI_ACTIVE)
+
+  // Optional visitor identifier (e.g. anonymous fingerprint or user-provided email)
+  visitorId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  chatbotId String
+  chatbot   Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  messages ChatMessage[]
+
+  @@index([workspaceId])
+  @@index([chatbotId])
+  @@index([status])
+}
+
+model ChatMessage {
+  id      String      @id @default(cuid())
+  role    MessageRole
+  content String
+
+  createdAt DateTime @default(now())
+
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([createdAt])
 }
 
 // Many-to-many: a chatbot can have multiple knowledge sources

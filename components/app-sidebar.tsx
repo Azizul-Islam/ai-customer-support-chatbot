@@ -8,6 +8,7 @@ import {
   Bot,
   Settings,
   MessageSquareMore,
+  MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
@@ -16,6 +17,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
   { href: "/chatbots", label: "Chatbots", icon: Bot },
+  { href: "/conversations", label: "Conversations", icon: MessageSquare },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 

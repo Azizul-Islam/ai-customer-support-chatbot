@@ -47,16 +47,17 @@ function formatTime(d: Date) {
 async function streamChat(
   chatbotId: string,
   message: string,
-  onToken: (t: string) => void,
-  onDone: () => void,
-  onError: (e: string) => void
+  sessionId: string | null,
+  onToken: (token: string) => void,
+  onDone: (humanRequired: boolean) => void,
+  onError: (err: string) => void
 ) {
   let res: Response
   try {
     res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatbotId, message }),
+      body: JSON.stringify({ chatbotId, message, ...(sessionId ? { sessionId } : {}) }),
     })
   } catch {
     onError("Network error — please try again.")
@@ -67,6 +68,7 @@ async function streamChat(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ""
+  let humanRequired = false
 
   while (true) {
     const { done, value } = await reader.read()
@@ -77,15 +79,16 @@ async function streamChat(
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue
       const raw = line.slice(6).trim()
-      if (raw === "[DONE]") { onDone(); return }
+      if (raw === "[DONE]") { onDone(humanRequired); return }
       try {
-        const p = JSON.parse(raw) as { content?: string; error?: string }
+        const p = JSON.parse(raw) as { content?: string; error?: string; done?: boolean; humanRequired?: boolean }
         if (p.content) onToken(p.content)
         if (p.error) { onError(p.error); return }
+        if (p.done) humanRequired = p.humanRequired ?? false
       } catch { /* ignore */ }
     }
   }
-  onDone()
+  onDone(humanRequired)
 }
 
 // ── Typing dots ────────────────────────────────────────────────────────────────
@@ -174,7 +177,13 @@ function UserBubble({ msg }: { msg: Message }) {
 let _id = 0
 const uid = () => String(++_id)
 
-export function ChatWindow({ config, onClose }: { config: ChatConfig; onClose?: () => void }) {
+export function ChatWindow({
+  config,
+  onClose,
+}: {
+  config: ChatConfig
+  onClose?: () => void
+}) {
   const { chatbotId, botName, welcomeMessage, primaryColor } = config
   const textColor = contrastColor(primaryColor)
   const rgb = hexToRgb(primaryColor)
@@ -185,8 +194,24 @@ export function ChatWindow({ config, onClose }: { config: ChatConfig; onClose?: 
   ])
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
+  const [escalated, setEscalated] = useState(false)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Auto-create a session so all messages are persisted from first interaction
+  useEffect(() => {
+    fetch("/api/chat/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatbotId }),
+    })
+      .then((r) => r.json())
+      .then((data: { sessionId?: string }) => {
+        if (data.sessionId) setActiveSessionId(data.sessionId)
+      })
+      .catch(() => {})
+  }, [chatbotId])
 
   useEffect(() => {
     if (window.parent !== window) {
@@ -200,7 +225,7 @@ export function ChatWindow({ config, onClose }: { config: ChatConfig; onClose?: 
 
   const send = () => {
     const text = input.trim()
-    if (!text || busy) return
+    if (!text || busy || escalated) return
     setInput("")
     setBusy(true)
 
@@ -210,10 +235,44 @@ export function ChatWindow({ config, onClose }: { config: ChatConfig; onClose?: 
     setMessages((p) => [...p, userMsg, botMsg])
 
     streamChat(
-      chatbotId, text,
-      (token) => setMessages((p) => p.map((m) => m.id === botId ? { ...m, text: m.text + token } : m)),
-      () => { setMessages((p) => p.map((m) => m.id === botId ? { ...m, streaming: false } : m)); setBusy(false); inputRef.current?.focus() },
-      (err) => { setMessages((p) => p.map((m) => m.id === botId ? { ...m, text: err, streaming: false } : m)); setBusy(false); inputRef.current?.focus() }
+      chatbotId,
+      text,
+      activeSessionId,
+      (token: string) =>
+        setMessages((p) =>
+          p.map((m) => (m.id === botId ? { ...m, text: m.text + token } : m))
+        ),
+      (humanRequired: boolean) => {
+        setMessages((p) =>
+          p.map((m) => {
+            if (m.id !== botId) return m
+            // Strip marker if it leaked into the streamed text
+            const clean = m.text.replace(/\[ESCALATE\]\s*$/, "").trimEnd()
+            return { ...m, text: clean, streaming: false }
+          })
+        )
+        if (humanRequired) {
+          setEscalated(true)
+          setMessages((p) => [
+            ...p,
+            {
+              id: uid(),
+              role: "bot",
+              text: "I've connected you with a human agent who will follow up shortly. Thank you for your patience.",
+              ts: new Date(),
+            },
+          ])
+        }
+        setBusy(false)
+        inputRef.current?.focus()
+      },
+      (err: string) => {
+        setMessages((p) =>
+          p.map((m) => (m.id === botId ? { ...m, text: err, streaming: false } : m))
+        )
+        setBusy(false)
+        inputRef.current?.focus()
+      }
     )
   }
 
@@ -290,35 +349,44 @@ export function ChatWindow({ config, onClose }: { config: ChatConfig; onClose?: 
 
       {/* ── Input ───────────────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-gray-100 bg-white px-3 py-3">
-        <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 transition-shadow focus-within:border-gray-300 focus-within:shadow-sm">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send() } }}
-            disabled={busy}
-            placeholder="Type a message…"
-            className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={send}
-            disabled={busy || !input.trim()}
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-lg transition-all",
-              "disabled:opacity-35 disabled:cursor-not-allowed",
-              "hover:brightness-110 active:scale-95"
-            )}
-            style={{ backgroundColor: primaryColor, color: textColor }}
-            aria-label="Send"
-          >
-            {busy
-              ? <Loader2 className="size-3.5 animate-spin" />
-              : <Send className="size-3.5" />
-            }
-          </button>
-        </div>
+        {escalated ? (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <span className="size-2 shrink-0 rounded-full bg-amber-400" />
+            <p className="text-xs text-amber-700">
+              A human agent has been notified and will follow up soon.
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 transition-shadow focus-within:border-gray-300 focus-within:shadow-sm">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send() } }}
+              disabled={busy}
+              placeholder="Type a message…"
+              className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={send}
+              disabled={busy || !input.trim()}
+              className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-lg transition-all",
+                "disabled:opacity-35 disabled:cursor-not-allowed",
+                "hover:brightness-110 active:scale-95"
+              )}
+              style={{ backgroundColor: primaryColor, color: textColor }}
+              aria-label="Send"
+            >
+              {busy
+                ? <Loader2 className="size-3.5 animate-spin" />
+                : <Send className="size-3.5" />
+              }
+            </button>
+          </div>
+        )}
         <p className="mt-2 text-center text-[10px] text-gray-300">
           Powered by <span className="font-medium text-gray-400">ChatBuilder</span>
         </p>

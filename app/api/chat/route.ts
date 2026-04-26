@@ -5,32 +5,50 @@ import { generateEmbedding } from "@/lib/embeddings"
 import { similaritySearchBySources } from "@/lib/vector-store"
 import type { Personality } from "@/lib/chatbot-config"
 
-// Prisma requires Node.js runtime — streaming still works identically.
 export const runtime = "nodejs"
 
 const MAX_CONTEXT_CHUNKS = 5
 const SIMILARITY_THRESHOLD = 0.45
+const ESCALATE_MARKER = "[ESCALATE]"
+
+// function getOpenAI(): OpenAI {
+//   const apiKey = process.env.OPENAI_API_KEY
+//   if (!apiKey) throw new Error("OPENAI_API_KEY not configured")
+//   return new OpenAI({ apiKey })
+// }
 
 function getOpenAI(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured")
-  return new OpenAI({ apiKey })
+  // OpenRouter doesn't strictly require an API key for free models, 
+  // but it's best practice to use one to avoid being treated as a bot.
+  
+  return new OpenAI({
+    apiKey: apiKey, 
+    baseURL: "https://openrouter.ai/api/v1",
+    defaultHeaders: {
+      "HTTP-Referer": "http://localhost:3000", 
+      "X-Title": "OneDesk AI Build",         
+    }
+  })
 }
 
-function buildSystemMessage(systemPrompt: string, contextChunks: string[]): string {
-  if (contextChunks.length === 0) return systemPrompt
+function buildSystemMessage(
+  systemPrompt: string,
+  contextChunks: string[],
+  hasKnowledgeBase: boolean
+): string {
+  let prompt = systemPrompt
 
-  const context = contextChunks
-    .map((c, i) => `[${i + 1}] ${c}`)
-    .join("\n\n")
+  if (contextChunks.length > 0) {
+    const context = contextChunks.map((c, i) => `[${i + 1}] ${c}`).join("\n\n")
+    prompt += `\n\n---\nKNOWLEDGE BASE CONTEXT:\n${context}\n---\nUse the context above to answer questions when relevant. Never fabricate specific facts about the product.`
+  }
 
-  return `${systemPrompt}
+  if (hasKnowledgeBase) {
+    prompt += `\n\nIMPORTANT: If you cannot confidently answer the question from the provided context or your knowledge, append the exact text "${ESCALATE_MARKER}" at the very end of your response with no text after it. Omit it entirely if you can answer confidently.`
+  }
 
----
-KNOWLEDGE BASE CONTEXT:
-${context}
----
-Use the context above to answer questions when relevant. If the answer is not in the context, rely on your general knowledge but make it clear. Never fabricate specific facts about the product.`
+  return prompt
 }
 
 export async function POST(req: NextRequest) {
@@ -42,7 +60,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  const { message, chatbotId } = body as Record<string, unknown>
+  const { message, chatbotId, sessionId } = body as Record<string, unknown>
 
   if (typeof message !== "string" || !message.trim()) {
     return Response.json({ error: "message is required" }, { status: 400 })
@@ -50,6 +68,8 @@ export async function POST(req: NextRequest) {
   if (typeof chatbotId !== "string" || !chatbotId.trim()) {
     return Response.json({ error: "chatbotId is required" }, { status: 400 })
   }
+
+  const trimmedMessage = message.trim()
 
   // ── Fetch chatbot config ────────────────────────────────────────────────────
   const chatbot = await db.chatbot.findUnique({
@@ -66,10 +86,26 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Chatbot not found" }, { status: 404 })
   }
 
-  const cfg = (chatbot.config ?? {}) as { primaryColor?: string; personality?: Personality }
   const systemPrompt =
     chatbot.systemPrompt ??
     `You are ${chatbot.name}, a helpful support assistant. Be concise and accurate.`
+
+  // ── Resolve session (optional) ──────────────────────────────────────────────
+  // Session must belong to this chatbot — prevents cross-chatbot message injection.
+  let session: { id: string } | null = null
+  if (typeof sessionId === "string" && sessionId.trim()) {
+    session = await db.chatSession.findFirst({
+      where: { id: sessionId.trim(), chatbotId },
+      select: { id: true },
+    })
+  }
+
+  // Save user message before streaming so it's persisted even on stream failure
+  if (session) {
+    await db.chatMessage.create({
+      data: { sessionId: session.id, role: "user", content: trimmedMessage },
+    })
+  }
 
   // ── Retrieve RAG context ────────────────────────────────────────────────────
   const sourceIds = chatbot.knowledgeSources.map((s) => s.knowledgeSourceId)
@@ -77,7 +113,7 @@ export async function POST(req: NextRequest) {
 
   if (sourceIds.length > 0) {
     try {
-      const queryEmbedding = await generateEmbedding(message.trim())
+      const queryEmbedding = await generateEmbedding(trimmedMessage)
       const chunks = await similaritySearchBySources(
         queryEmbedding,
         sourceIds,
@@ -89,6 +125,8 @@ export async function POST(req: NextRequest) {
       // Non-fatal — continue without context
     }
   }
+
+  const hasKnowledgeBase = sourceIds.length > 0
 
   // ── Stream GPT-4o ───────────────────────────────────────────────────────────
   const openai = getOpenAI()
@@ -103,9 +141,9 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: "system",
-          content: buildSystemMessage(systemPrompt, contextChunks),
+          content: buildSystemMessage(systemPrompt, contextChunks, hasKnowledgeBase),
         },
-        { role: "user", content: message.trim() },
+        { role: "user", content: trimmedMessage },
       ],
     })
   } catch (err) {
@@ -118,16 +156,48 @@ export async function POST(req: NextRequest) {
 
   const readable = new ReadableStream({
     async start(controller) {
+      let fullResponse = ""
+
       try {
         for await (const chunk of openaiStream) {
-          const content = chunk.choices[0]?.delta?.content
-          if (content) {
+          const token = chunk.choices[0]?.delta?.content
+          if (token) {
+            fullResponse += token
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
+              encoder.encode(`data: ${JSON.stringify({ content: token })}\n\n`)
             )
           }
-          if (chunk.choices[0]?.finish_reason === "stop") {
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+        }
+
+        // Detect escalation marker in the complete response
+        const markerIdx = fullResponse.lastIndexOf(ESCALATE_MARKER)
+        const humanRequired = markerIdx !== -1
+        const cleanResponse = humanRequired
+          ? fullResponse.slice(0, markerIdx).trimEnd()
+          : fullResponse
+
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ done: true, humanRequired })}\n\n`
+          )
+        )
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+
+        // ── Post-stream DB writes ─────────────────────────────────────────────
+        if (session && cleanResponse) {
+          await db.chatMessage.create({
+            data: {
+              sessionId: session.id,
+              role: "assistant",
+              content: cleanResponse,
+            },
+          })
+
+          if (humanRequired) {
+            await db.chatSession.update({
+              where: { id: session.id },
+              data: { status: "HUMAN_REQUIRED" },
+            })
           }
         }
       } catch (err) {

@@ -7,13 +7,23 @@ export const EMBEDDING_DIMENSIONS = 1536
 // Singleton — reuses the same HTTP client across requests in dev hot-reload
 const globalForOpenAI = globalThis as unknown as { openai?: OpenAI }
 
+// function getClient(): OpenAI {
+//   if (!globalForOpenAI.openai) {
+//     const apiKey = process.env.OPENAI_API_KEY
+//     if (!apiKey || apiKey === "your_openai_api_key") {
+//       throw new Error("OPENAI_API_KEY is not configured")
+//     }
+//     globalForOpenAI.openai = new OpenAI({ apiKey })
+//   }
+//   return globalForOpenAI.openai
+// }
+
 function getClient(): OpenAI {
   if (!globalForOpenAI.openai) {
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey || apiKey === "your_openai_api_key") {
-      throw new Error("OPENAI_API_KEY is not configured")
-    }
-    globalForOpenAI.openai = new OpenAI({ apiKey })
+    globalForOpenAI.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+    })
   }
   return globalForOpenAI.openai
 }
