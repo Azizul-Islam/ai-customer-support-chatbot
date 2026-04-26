@@ -1,4 +1,5 @@
 import { toSql } from "pgvector"
+import { Prisma } from "@/lib/generated/prisma/client"
 import { db } from "@/lib/db"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -110,6 +111,36 @@ export async function similaritySearch(
       `
 
   return rows
+}
+
+/**
+ * Search across multiple knowledge sources at once.
+ * Used by the chat route to scope retrieval to a chatbot's connected sources.
+ */
+export async function similaritySearchBySources(
+  queryEmbedding: number[],
+  sourceIds: string[],
+  limit = 5,
+  threshold = 0.5
+): Promise<SimilarChunk[]> {
+  if (sourceIds.length === 0) return []
+  const vec = toSql(queryEmbedding)
+  const idList = Prisma.join(sourceIds.map((id) => Prisma.sql`${id}`))
+
+  return db.$queryRaw<SimilarChunk[]>`
+    SELECT
+      id,
+      content,
+      "knowledgeSourceId",
+      "chunkIndex",
+      "createdAt",
+      (1 - (embedding <=> ${vec}::vector))::float AS similarity
+    FROM "DocumentChunk"
+    WHERE "knowledgeSourceId" IN (${idList})
+      AND (1 - (embedding <=> ${vec}::vector)) >= ${threshold}
+    ORDER BY embedding <=> ${vec}::vector
+    LIMIT ${limit}
+  `
 }
 
 /**

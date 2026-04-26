@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Bot, Send, Circle, Check, RefreshCw, AlertCircle, Loader2 } from "lucide-react"
+import { Bot, Send, Circle, Check, RefreshCw, AlertCircle, Loader2, Copy, ExternalLink, Code2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -149,12 +149,19 @@ function defaultConfig(initial?: InitialChatbotData): Config {
   }
 }
 
-export function ChatbotCustomizer({ initialData }: { initialData?: InitialChatbotData }) {
+export function ChatbotCustomizer({
+  initialData,
+  appUrl = "",
+}: {
+  initialData?: InitialChatbotData
+  appUrl?: string
+}) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [config, setConfig] = useState<Config>(defaultConfig(initialData))
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const update = <K extends keyof Config>(key: K, value: Config[K]) =>
     setConfig((c) => ({ ...c, [key]: value }))
@@ -356,6 +363,78 @@ export function ChatbotCustomizer({ initialData }: { initialData?: InitialChatbo
             "Save Changes"
           )}
         </Button>
+
+        {/* ── Embed code card ─────────────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Code2 className="size-4 text-muted-foreground" />
+              Embed on Your Website
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {config.id ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Paste this snippet before the closing{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">&lt;/body&gt;</code>{" "}
+                  tag on any page.
+                </p>
+                <div className="group relative">
+                  <pre className="overflow-x-auto rounded-md border border-border bg-muted px-3 py-3 font-mono text-[11px] leading-relaxed text-foreground">
+{`<script\n  src="${appUrl}/loader.js"\n  data-chatbot-id="${config.id}"\n></script>`}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const snippet = `<script\n  src="${appUrl}/loader.js"\n  data-chatbot-id="${config.id}"\n></script>`
+                      navigator.clipboard.writeText(snippet).then(() => {
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 2000)
+                      })
+                    }}
+                    className="absolute right-2 top-2 rounded-md border border-border bg-background p-1.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+                    title="Copy snippet"
+                  >
+                    {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => {
+                      const snippet = `<script\n  src="${appUrl}/loader.js"\n  data-chatbot-id="${config.id}"\n></script>`
+                      navigator.clipboard.writeText(snippet).then(() => {
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 2000)
+                      })
+                    }}
+                  >
+                    {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+                    {copied ? "Copied!" : "Copy Code"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-xs text-muted-foreground"
+                    asChild
+                  >
+                    <a href={`/chatbot/${config.id}`} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="size-3.5" />
+                      Preview
+                    </a>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Save your chatbot to get the embed code.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* ── Right: Live Preview ─────────────────────────────────────────── */}

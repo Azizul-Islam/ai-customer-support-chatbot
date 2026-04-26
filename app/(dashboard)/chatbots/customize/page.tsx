@@ -10,6 +10,8 @@ export const metadata: Metadata = {
   title: "Chatbot Customizer — ChatBuilder",
 }
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+
 export default async function CustomizePage({
   searchParams,
 }: {
@@ -31,6 +33,7 @@ export default async function CustomizePage({
 
     return (
       <ChatbotCustomizer
+        appUrl={APP_URL}
         initialData={{
           id: bot.id,
           botName: bot.name,
@@ -43,5 +46,5 @@ export default async function CustomizePage({
     )
   }
 
-  return <ChatbotCustomizer />
+  return <ChatbotCustomizer appUrl={APP_URL} />
 }
