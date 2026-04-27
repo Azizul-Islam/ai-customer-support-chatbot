@@ -11,11 +11,12 @@ import {
   Headphones,
   RefreshCw,
   ChevronLeft,
+  Send,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import { getSessionMessages, resolveSession } from "@/app/actions/conversations"
+import { getSessionMessages, resolveSession, sendHumanAgentMessage } from "@/app/actions/conversations"
 import type { SessionRow, MessageRow } from "@/app/actions/conversations"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -112,6 +113,25 @@ function ThreadView({
   onBack: () => void
 }) {
   const [resolving, startResolve] = useTransition()
+  const [input, setInput] = useState("")
+  const [sending, startSend] = useTransition()
+  const [messagesLocal, setMessagesLocal] = useState<MessageRow[]>(messages)
+
+  const handleSend = () => {
+    if (!input.trim() || sending) return
+    startSend(async () => {
+      await sendHumanAgentMessage(session.id, input.trim())
+      const newMsg: MessageRow = {
+        id: crypto.randomUUID(),
+        role: "human_agent",
+        content: input.trim(),
+        createdAt: new Date(),
+      }
+      setMessagesLocal((prev) => [...prev, newMsg])
+      setInput("")
+      onResolve()
+    })
+  }
 
   const handleResolve = () => {
     startResolve(async () => {
@@ -211,6 +231,42 @@ function ThreadView({
           ))
         )}
       </div>
+
+      {session.status === "HUMAN_REQUIRED" && (
+        <div className="shrink-0 border-t border-border bg-white p-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+              placeholder="Reply as human agent..."
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+              disabled={sending}
+            />
+            <Button
+              onClick={handleSend}
+              disabled={!input.trim() || sending}
+              className="gap-1.5"
+            >
+              {sending ? (
+                <RefreshCw className="size-4 animate-spin" />
+              ) : (
+                <Send className="size-4" />
+              )}
+              Send
+            </Button>
+          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Your reply will appear as a human agent and mark the session as resolved.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

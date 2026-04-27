@@ -5,7 +5,7 @@ import { getOrProvisionWorkspace } from "@/lib/workspace"
 
 export type SessionRow = {
   id: string
-  status: "AI_ACTIVE" | "HUMAN_REQUIRED"
+  status: "AI_ACTIVE" | "HUMAN_REQUIRED" | "HUMAN_RESOLVED"
   visitorId: string | null
   createdAt: Date
   updatedAt: Date
@@ -95,6 +95,35 @@ export async function resolveSession(sessionId: string): Promise<{ ok: boolean }
   await db.chatSession.update({
     where: { id: sessionId },
     data: { status: "AI_ACTIVE" },
+  })
+
+  return { ok: true }
+}
+
+export async function sendHumanAgentMessage(
+  sessionId: string,
+  content: string
+): Promise<{ ok: boolean }> {
+  const ctx = await getOrProvisionWorkspace()
+  if (!ctx) return { ok: false }
+
+  const session = await db.chatSession.findFirst({
+    where: { id: sessionId, workspaceId: ctx.workspace.id },
+    select: { id: true },
+  })
+  if (!session) return { ok: false }
+
+  await db.chatMessage.create({
+    data: {
+      sessionId,
+      role: "human_agent",
+      content,
+    },
+  })
+
+  await db.chatSession.update({
+    where: { id: sessionId },
+    data: { status: "HUMAN_RESOLVED" },
   })
 
   return { ok: true }

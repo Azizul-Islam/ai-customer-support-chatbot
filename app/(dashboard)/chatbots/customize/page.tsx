@@ -5,6 +5,10 @@ import { getOrProvisionWorkspace } from "@/lib/workspace"
 import { db } from "@/lib/db"
 import type { Personality } from "@/lib/chatbot-config"
 import { DEFAULT_PERSONALITY, generateSystemPrompt } from "@/lib/chatbot-config"
+import {
+  getChatbotKnowledgeSources,
+  getAvailableKnowledgeSources,
+} from "@/app/actions/chatbot"
 
 export const metadata: Metadata = {
   title: "Chatbot Customizer — ChatBuilder",
@@ -17,23 +21,33 @@ export default async function CustomizePage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-  const { id } = await searchParams
+  const sp = await searchParams
+  const botId = typeof sp.id === "string" ? sp.id : null
 
-  if (id && typeof id === "string") {
-    const ctx = await getOrProvisionWorkspace()
-    if (!ctx) notFound()
+  const ctx = await getOrProvisionWorkspace()
+  if (!ctx) notFound()
 
-    const bot = await db.chatbot.findFirst({
-      where: { id, workspaceId: ctx.workspace.id },
+  const availableSources = await getAvailableKnowledgeSources()
+
+  if (botId) {
+    const bot = await db.chatbot.findUnique({
+      where: { id: botId },
     })
-    if (!bot) notFound()
+    if (!bot || bot.workspaceId !== ctx.workspace.id) notFound()
 
-    const cfg = (bot.config ?? {}) as { primaryColor?: string; personality?: Personality }
+    const cfg = (bot.config ?? {}) as {
+      primaryColor?: string
+      personality?: Personality
+      defaultMode?: "ai" | "human"
+    }
     const personality: Personality = cfg.personality ?? DEFAULT_PERSONALITY
+
+    const attachedSources = await getChatbotKnowledgeSources(botId)
 
     return (
       <ChatbotCustomizer
         appUrl={APP_URL}
+        availableSources={availableSources}
         initialData={{
           id: bot.id,
           botName: bot.name,
@@ -41,10 +55,15 @@ export default async function CustomizePage({
           welcomeMessage: bot.welcomeMessage ?? "Hi! How can I help you today? 👋",
           personality,
           systemPrompt: bot.systemPrompt ?? generateSystemPrompt(bot.name, personality),
+          attachedSourceIds: attachedSources.map((s) => s.id),
+          defaultMode: cfg.defaultMode ?? "ai",
+          status: bot.status,
         }}
       />
     )
   }
 
-  return <ChatbotCustomizer appUrl={APP_URL} />
+  return (
+    <ChatbotCustomizer appUrl={APP_URL} availableSources={availableSources} />
+  )
 }

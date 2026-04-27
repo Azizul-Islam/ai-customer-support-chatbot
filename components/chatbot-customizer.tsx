@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Bot, Send, Circle, Check, RefreshCw, AlertCircle, Loader2, Copy, ExternalLink, Code2 } from "lucide-react"
+import { Bot, Send, Circle, Check, RefreshCw, AlertCircle, Loader2, Copy, ExternalLink, Code2, User } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -18,7 +18,7 @@ import {
   DEFAULT_PERSONALITY,
   generateSystemPrompt,
 } from "@/lib/chatbot-config"
-import { saveChatbot } from "@/app/actions/chatbot"
+import { saveChatbot, setChatbotKnowledgeSources } from "@/app/actions/chatbot"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,15 +29,21 @@ interface Config {
   welcomeMessage: string
   personality: Personality
   systemPrompt: string
+  selectedSources: string[]
+  defaultMode: "ai" | "human"
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED"
 }
 
 export interface InitialChatbotData {
-  id: string
+  id?: string
   botName: string
   primaryColor: string
   welcomeMessage: string
   personality: Personality
   systemPrompt: string
+  attachedSourceIds?: string[]
+  defaultMode?: "ai" | "human"
+  status?: "DRAFT" | "ACTIVE" | "ARCHIVED"
 }
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -139,22 +145,39 @@ function ColorField({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 function defaultConfig(initial?: InitialChatbotData): Config {
-  if (initial) return initial
+  if (initial) {
+    return {
+      id: initial.id,
+      botName: initial.botName,
+      primaryColor: initial.primaryColor,
+      welcomeMessage: initial.welcomeMessage,
+      personality: initial.personality,
+      systemPrompt: initial.systemPrompt,
+      selectedSources: initial.attachedSourceIds ?? [],
+      defaultMode: initial.defaultMode ?? "ai",
+      status: initial.status ?? "DRAFT",
+    }
+  }
   return {
     botName: "Support Bot",
     primaryColor: "#6366f1",
     welcomeMessage: "Hi! How can I help you today? 👋",
     personality: DEFAULT_PERSONALITY,
     systemPrompt: generateSystemPrompt("Support Bot", DEFAULT_PERSONALITY),
+    selectedSources: [],
+    defaultMode: "ai",
+    status: "DRAFT",
   }
 }
 
 export function ChatbotCustomizer({
   initialData,
   appUrl = "",
+  availableSources = [],
 }: {
   initialData?: InitialChatbotData
   appUrl?: string
+  availableSources?: { id: string; name: string; status: string }[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -162,6 +185,10 @@ export function ChatbotCustomizer({
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Debug: log what we're receiving
+  console.log("COMPONENT mounted - initialData:", initialData)
+  console.log("COMPONENT config.id:", config.id)
 
   const update = <K extends keyof Config>(key: K, value: Config[K]) =>
     setConfig((c) => ({ ...c, [key]: value }))
@@ -185,20 +212,34 @@ export function ChatbotCustomizer({
     setSaveState("idle")
     setErrorMsg(null)
 
+    const botId = config.id
+    const botName = config.botName
+    const botStatus = config.status
+
+    console.log("SAVING - botId:", botId, "botName:", botName, "status:", botStatus)
+
     startTransition(async () => {
       const result = await saveChatbot({
-        id: config.id,
-        name: config.botName,
+        id: botId,
+        name: botName,
         primaryColor: config.primaryColor,
         welcomeMessage: config.welcomeMessage,
         personality: config.personality,
         systemPrompt: config.systemPrompt,
+        defaultMode: config.defaultMode,
+        status: config.status === "ACTIVE" ? "ACTIVE" : config.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT",
       })
 
       if (!result.ok) {
         setSaveState("error")
         setErrorMsg(result.error)
         return
+      }
+
+      const chatbotId = result.chatbotId
+
+      if (config.id && config.selectedSources) {
+        await setChatbotKnowledgeSources(chatbotId, config.selectedSources)
       }
 
       setSaveState("saved")
@@ -335,11 +376,153 @@ export function ChatbotCustomizer({
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Default Conversation Mode</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">
+              Choose whether visitors talk to AI or a human agent by default.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => update("defaultMode", "ai")}
+                className={cn(
+                  "flex-1 rounded-lg border-2 p-3 text-center transition-colors",
+                  config.defaultMode === "ai"
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:border-primary/50"
+                )}
+              >
+                <Bot className="mx-auto mb-1 size-5" />
+                <span className="block text-sm font-medium">AI Assistant</span>
+                <span className="block text-xs text-muted-foreground">
+                  Chat with AI first
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => update("defaultMode", "human")}
+                className={cn(
+                  "flex-1 rounded-lg border-2 p-3 text-center transition-colors",
+                  config.defaultMode === "human"
+                    ? "border-purple-500 bg-purple-50"
+                    : "border-border hover:border-purple-500/50"
+                )}
+              >
+                <User className="mx-auto mb-1 size-5" />
+                <span className="block text-sm font-medium">Human Agent</span>
+                <span className="block text-xs text-muted-foreground">
+                  Direct to humans
+                </span>
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Users can switch between AI and human in the chat widget.
+            </p>
+          </CardContent>
+        </Card>
+
+        {availableSources.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Knowledge Base</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-xs text-muted-foreground">
+                Select which knowledge sources this chatbot can use to answer questions.
+              </p>
+              <div className="flex flex-col gap-2">
+                {availableSources.map((source) => (
+                  <label
+                    key={source.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md border border-border p-2 transition-colors hover:bg-muted/50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={config.selectedSources.includes(source.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          update("selectedSources", [...config.selectedSources, source.id])
+                        } else {
+                          update(
+                            "selectedSources",
+                            config.selectedSources.filter((id) => id !== source.id)
+                          )
+                        }
+                      }}
+                      className="size-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <span className="text-sm">{source.name}</span>
+                  </label>
+                ))}
+              </div>
+              {config.selectedSources.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  No sources selected — the chatbot will not use your knowledge base.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {saveState === "error" && errorMsg && (
           <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
             <AlertCircle className="size-4 shrink-0" />
             {errorMsg}
           </div>
+        )}
+
+        {config.id && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => update("status", "DRAFT")}
+                  className={cn(
+                    "flex-1 rounded-lg border-2 p-2 text-center transition-colors",
+                    config.status === "DRAFT"
+                      ? "border-gray-400 bg-gray-100"
+                      : "border-border hover:border-gray-400"
+                  )}
+                >
+                  <span className="block text-sm font-medium">Draft</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update("status", "ACTIVE")}
+                  className={cn(
+                    "flex-1 rounded-lg border-2 p-2 text-center transition-colors",
+                    config.status === "ACTIVE"
+                      ? "border-emerald-500 bg-emerald-50"
+                      : "border-border hover:border-emerald-500"
+                  )}
+                >
+                  <span className="block text-sm font-medium">Active</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => update("status", "ARCHIVED")}
+                  className={cn(
+                    "flex-1 rounded-lg border-2 p-2 text-center transition-colors",
+                    config.status === "ARCHIVED"
+                      ? "border-gray-400 bg-gray-100"
+                      : "border-border hover:border-gray-400"
+                  )}
+                >
+                  <span className="block text-sm font-medium">Archived</span>
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Only ACTIVE chatbots can be embedded on websites.
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         <Button

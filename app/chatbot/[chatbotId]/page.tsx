@@ -3,6 +3,8 @@ import { db } from "@/lib/db"
 import { ChatWindow, FloatingChatWidget } from "@/components/chat-window"
 import type { Personality } from "@/lib/chatbot-config"
 
+type ChatMode = "ai" | "human"
+
 export default async function ChatbotIframePage({
   params,
   searchParams,
@@ -12,6 +14,7 @@ export default async function ChatbotIframePage({
 }) {
   const [{ chatbotId }, sp] = await Promise.all([params, searchParams])
   const isEmbed = sp.embed === "1"
+  const mode: ChatMode = typeof sp.mode === "string" && sp.mode === "human" ? "human" : "ai"
 
   const chatbot = await db.chatbot.findUnique({
     where: { id: chatbotId },
@@ -26,6 +29,7 @@ export default async function ChatbotIframePage({
     botName: chatbot.name,
     welcomeMessage: chatbot.welcomeMessage ?? "Hi! How can I help you today? 👋",
     primaryColor: cfg.primaryColor ?? "#6366f1",
+    mode,
   }
 
   // Embed mode: fill the iframe cleanly (loader.js constrains the size)

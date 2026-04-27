@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Send, Loader2, Minimize2 } from "lucide-react"
+import { Send, Loader2, Minimize2, User, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ export interface ChatConfig {
   botName: string
   welcomeMessage: string
   primaryColor: string
+  mode?: "ai" | "human"
 }
 
 // ── Color helpers ──────────────────────────────────────────────────────────────
@@ -184,7 +185,7 @@ export function ChatWindow({
   config: ChatConfig
   onClose?: () => void
 }) {
-  const { chatbotId, botName, welcomeMessage, primaryColor } = config
+  const { chatbotId, botName, welcomeMessage, primaryColor, mode: initialMode } = config
   const textColor = contrastColor(primaryColor)
   const rgb = hexToRgb(primaryColor)
   const initial = (botName || "B").charAt(0).toUpperCase()
@@ -195,7 +196,9 @@ export function ChatWindow({
   const [input, setInput] = useState("")
   const [busy, setBusy] = useState(false)
   const [escalated, setEscalated] = useState(false)
+  const [mode, setMode] = useState<"ai" | "human">(initialMode === "human" ? "human" : "ai")
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [lastMessageId, setLastMessageId] = useState<string>("")
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -204,14 +207,14 @@ export function ChatWindow({
     fetch("/api/chat/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatbotId }),
+      body: JSON.stringify({ chatbotId, mode }),
     })
       .then((r) => r.json())
       .then((data: { sessionId?: string }) => {
         if (data.sessionId) setActiveSessionId(data.sessionId)
       })
       .catch(() => {})
-  }, [chatbotId])
+  }, [chatbotId, mode])
 
   useEffect(() => {
     if (window.parent !== window) {
@@ -222,6 +225,37 @@ export function ChatWindow({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  // Poll for new human agent messages when in human mode
+  useEffect(() => {
+    if (mode !== "human" || !activeSessionId) return
+
+    const pollMessages = async () => {
+      try {
+        const res = await fetch(`/api/chat/session?sessionId=${activeSessionId}`)
+        const data = await res.json()
+        if (data.messages?.length) {
+          const latestMsg = data.messages[data.messages.length - 1]
+          if (latestMsg.id !== lastMessageId && latestMsg.role === "human_agent") {
+            setLastMessageId(latestMsg.id)
+            setMessages((p) => [
+              ...p,
+              {
+                id: latestMsg.id,
+                role: "bot" as const,
+                text: latestMsg.content,
+                ts: new Date(latestMsg.createdAt),
+              },
+            ])
+          }
+        }
+      } catch {}
+    }
+
+    pollMessages()
+    const interval = setInterval(pollMessages, 3000)
+    return () => clearInterval(interval)
+  }, [mode, activeSessionId, lastMessageId])
 
   const send = () => {
     const text = input.trim()
@@ -305,15 +339,25 @@ export function ChatWindow({
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold leading-tight" style={{ color: textColor }}>
-              {botName}
+              {mode === "human" ? "Support Team" : botName}
             </p>
             <div className="mt-1 flex items-center gap-1.5">
               <span className="size-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
               <span className="text-xs opacity-80" style={{ color: textColor }}>
-                Online · Typically replies instantly
+                {mode === "human" ? "Typically replies soon" : "Online · Typically replies instantly"}
               </span>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setMode((m) => (m === "ai" ? "human" : "ai"))}
+            className="rounded-full p-1.5 transition-colors hover:bg-black/10"
+            style={{ color: textColor }}
+            aria-label="Switch mode"
+            title={mode === "ai" ? "Talk to human" : "Talk to AI"}
+          >
+            {mode === "ai" ? <User className="size-4" /> : <Bot className="size-4" />}
+          </button>
           {onClose && (
             <button
               type="button"
