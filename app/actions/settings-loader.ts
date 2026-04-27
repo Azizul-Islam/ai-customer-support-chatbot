@@ -5,10 +5,10 @@ export async function loadSettingsData() {
   const ctx = await getOrProvisionWorkspace()
   if (!ctx) return null
 
-  const [user, userSettings, workspaceSettings, apiKeys] = await Promise.all([
-    db.user.findUnique({
-      where: { id: ctx.user.id },
-      select: { id: true, name: true, email: true, avatarUrl: true },
+  const [workspace, userSettings, workspaceSettings] = await Promise.all([
+    db.workspace.findUnique({
+      where: { id: ctx.workspace.id },
+      select: { id: true, name: true, slug: true },
     }),
     db.userSettings.findUnique({
       where: { userId: ctx.user.id },
@@ -16,28 +16,15 @@ export async function loadSettingsData() {
     db.workspaceSettings.findUnique({
       where: { workspaceId: ctx.workspace.id },
     }),
-    db.apiKey.findMany({
-      where: { workspaceId: ctx.workspace.id },
-      select: {
-        id: true,
-        name: true,
-        keyPrefix: true,
-        createdAt: true,
-        expiresAt: true,
-        lastUsedAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    }),
   ])
 
-  if (!user) return null
+  if (!workspace) return null
 
   return {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatarUrl: user.avatarUrl,
+    workspace: {
+      id: workspace.id,
+      name: workspace.name,
+      slug: workspace.slug,
     },
     notifications: {
       emailNotifications: userSettings?.emailNotifications ?? true,
@@ -50,11 +37,10 @@ export async function loadSettingsData() {
       fontFamily: workspaceSettings?.fontFamily ?? "inter",
       theme: userSettings?.theme ?? "system",
     },
-    apiKeys: apiKeys.map((k) => ({
-      ...k,
-      createdAt: k.createdAt.toISOString(),
-      expiresAt: k.expiresAt?.toISOString() ?? null,
-      lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
-    })),
+    ai: {
+      aiProvider: workspaceSettings?.aiProvider ?? "OPENROUTER",
+      aiModel: workspaceSettings?.aiModel ?? "meta-llama/llama-3.3-70b-instruct:free",
+      aiApiKey: workspaceSettings?.aiApiKey ?? null,
+    },
   }
 }

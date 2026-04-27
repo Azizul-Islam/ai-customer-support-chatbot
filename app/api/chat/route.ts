@@ -11,19 +11,11 @@ const MAX_CONTEXT_CHUNKS = 5
 const SIMILARITY_THRESHOLD = 0.45
 const ESCALATE_MARKER = "[ESCALATE]"
 
-// function getOpenAI(): OpenAI {
-//   const apiKey = process.env.OPENAI_API_KEY
-//   if (!apiKey) throw new Error("OPENAI_API_KEY not configured")
-//   return new OpenAI({ apiKey })
-// }
-
 function getOpenAI(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
-  // OpenRouter doesn't strictly require an API key for free models, 
-  // but it's best practice to use one to avoid being treated as a bot.
   
   return new OpenAI({
-    apiKey: apiKey, 
+    apiKey, 
     baseURL: "https://openrouter.ai/api/v1",
     defaultHeaders: {
       "HTTP-Referer": "http://localhost:3000", 
@@ -128,26 +120,51 @@ export async function POST(req: NextRequest) {
 
   const hasKnowledgeBase = sourceIds.length > 0
 
-  // ── Stream GPT-4o ───────────────────────────────────────────────────────────
+  // ── Use environment config (static) ─────────────────────────────────────────
   const openai = getOpenAI()
+  const aiModel = process.env.AI_MODEL || "meta-llama/llama-3.3-70b-instruct:free"
+
+  const chatParams = {
+    model: aiModel,
+    stream: true as const,
+    temperature: 0.7,
+    max_tokens: 1024,
+    messages: [
+      {
+        role: "system" as const,
+        content: buildSystemMessage(systemPrompt, contextChunks, hasKnowledgeBase),
+      },
+      { role: "user" as const, content: trimmedMessage },
+    ],
+  }
 
   let openaiStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
   try {
-    openaiStream = await openai.chat.completions.create({
-      model: "gpt-4o",
-      stream: true,
-      temperature: 0.7,
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "system",
-          content: buildSystemMessage(systemPrompt, contextChunks, hasKnowledgeBase),
-        },
-        { role: "user", content: trimmedMessage },
-      ],
-    })
+    // Retry up to 3 times on 429 rate-limit responses (common with free OpenRouter models)
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        openaiStream = await openai.chat.completions.create(chatParams)
+        lastErr = undefined
+        break
+      } catch (err) {
+        lastErr = err
+        const status = (err as { status?: number })?.status
+        if (status !== 429 || attempt === 2) break
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      }
+    }
+    if (lastErr) throw lastErr
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "OpenAI error"
+    console.error("[Chat] AI Error:", err)
+    const status = (err as { status?: number })?.status
+    const msg = err instanceof Error ? err.message : "AI error"
+    if (status === 429) {
+      return Response.json(
+        { error: "The AI model is busy. Please try again in a moment." },
+        { status: 429 }
+      )
+    }
     return Response.json({ error: msg }, { status: 502 })
   }
 

@@ -220,6 +220,12 @@ model ChatbotKnowledgeSource {
 
 // ─── Settings Models ───────────────────────────────────────────────────────────
 
+enum AiProvider {
+  OPENAI
+  ANTHROPIC
+  OPENROUTER
+}
+
 model WorkspaceSettings {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
@@ -227,6 +233,11 @@ model WorkspaceSettings {
 
   workspaceId String  @unique
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // AI Provider settings
+  aiProvider    AiProvider @default(OPENROUTER)
+  aiModel       String?    @default("meta-llama/llama-3.3-70b-instruct:free")
+  aiApiKey      String?
 
   // Appearance settings
   primaryColor    String @default("#6366f1")

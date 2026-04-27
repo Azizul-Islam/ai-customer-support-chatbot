@@ -1,10 +1,10 @@
-import { Settings, User, Bell, Key, Palette } from "lucide-react"
+import { Settings, Building2, Bell, Palette, Bot } from "lucide-react"
 import { notFound } from "next/navigation"
 import { loadSettingsData } from "@/app/actions/settings-loader"
-import { AccountSettings } from "@/components/settings/account-settings"
+import { WorkspaceSettings } from "@/components/settings/workspace-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
-import { ApiKeySettings } from "@/components/settings/api-key-settings"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
+import { AiSettings } from "@/components/settings/ai-settings"
 
 export const metadata = {
   title: "Settings — ChatBuilder",
@@ -12,32 +12,28 @@ export const metadata = {
 
 const sections = [
   {
-    id: "account",
-    icon: User,
-    title: "Account",
-    description: "Manage your profile and account preferences",
-    component: "account",
+    id: "workspace",
+    icon: Building2,
+    title: "Workspace",
+    description: "Manage your workspace details",
+  },
+  {
+    id: "ai",
+    icon: Bot,
+    title: "AI Configuration",
+    description: "Configure AI provider and models for your chatbots",
   },
   {
     id: "notifications",
     icon: Bell,
     title: "Notifications",
     description: "Configure how and when you receive notifications",
-    component: "notifications",
-  },
-  {
-    id: "api-keys",
-    icon: Key,
-    title: "API Keys",
-    description: "Generate and manage API keys for integrations",
-    component: "api-keys",
   },
   {
     id: "appearance",
     icon: Palette,
     title: "Appearance",
     description: "Customize the look and feel of the platform",
-    component: "appearance",
   },
 ]
 
@@ -52,7 +48,7 @@ export default async function SettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Manage your workspace and account settings
+            Manage your workspace and preferences
           </p>
         </div>
       </div>
@@ -72,26 +68,25 @@ export default async function SettingsPage() {
         </nav>
 
         <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-          <div id="account">
-            <AccountSettings
+          <div id="workspace">
+            <WorkspaceSettings
               initialData={{
-                name: data.user.name,
-                email: data.user.email,
-                avatarUrl: data.user.avatarUrl,
+                name: data.workspace.name,
+                slug: data.workspace.slug,
               }}
             />
           </div>
 
           <div className="my-8 border-t" />
 
-          <div id="notifications">
-            <NotificationSettings initialData={data.notifications} />
+          <div id="ai">
+            <AiSettings initialData={data.ai} />
           </div>
 
           <div className="my-8 border-t" />
 
-          <div id="api-keys">
-            <ApiKeySettings initialKeys={data.apiKeys} />
+          <div id="notifications">
+            <NotificationSettings initialData={data.notifications} />
           </div>
 
           <div className="my-8 border-t" />

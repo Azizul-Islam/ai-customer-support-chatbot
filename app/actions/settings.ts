@@ -216,3 +216,55 @@ export async function deleteApiKey(id: string) {
     return { ok: false, error: "Failed to delete API key" }
   }
 }
+
+export async function updateAiSettings(data: {
+  aiProvider?: string
+  aiModel?: string
+  aiApiKey?: string
+}) {
+  const ctx = await getOrProvisionWorkspace()
+  if (!ctx) return { ok: false, error: "Not authenticated" }
+
+  try {
+    let settings = await db.workspaceSettings.findUnique({
+      where: { workspaceId: ctx.workspace.id },
+    })
+
+    const updateData: Record<string, unknown> = {}
+    if (data.aiProvider) updateData.aiProvider = data.aiProvider
+    if (data.aiModel) updateData.aiModel = data.aiModel
+    if (data.aiApiKey !== undefined) updateData.aiApiKey = data.aiApiKey || null
+
+    if (!settings) {
+      settings = await db.workspaceSettings.create({
+        data: { workspaceId: ctx.workspace.id, ...updateData },
+      })
+    } else {
+      await db.workspaceSettings.update({
+        where: { workspaceId: ctx.workspace.id },
+        data: updateData,
+      })
+    }
+
+    return { ok: true }
+  } catch (err) {
+    console.error("[updateAiSettings]", err)
+    return { ok: false, error: "Failed to update AI settings" }
+  }
+}
+
+export async function updateWorkspaceName(data: { name: string }) {
+  const ctx = await getOrProvisionWorkspace()
+  if (!ctx) return { ok: false, error: "Not authenticated" }
+
+  try {
+    await db.workspace.update({
+      where: { id: ctx.workspace.id },
+      data: { name: data.name },
+    })
+    return { ok: true }
+  } catch (err) {
+    console.error("[updateWorkspaceName]", err)
+    return { ok: false, error: "Failed to update workspace" }
+  }
+}
