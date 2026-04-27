@@ -123,7 +123,13 @@ export function AiSettings({ initialData }: AiSettingsProps) {
                 type={showKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={provider === "OPENAI" ? "sk-..." : "sk-ant-..."}
+                placeholder={
+                  provider === "OPENAI"
+                    ? "sk-..."
+                    : provider === "OPENROUTER"
+                    ? "sk-or-v1-..."
+                    : "sk-ant-api03-..."
+                }
               />
               <Button
                 type="button"

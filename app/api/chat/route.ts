@@ -3,7 +3,6 @@ import OpenAI from "openai"
 import { db } from "@/lib/db"
 import { generateEmbedding } from "@/lib/embeddings"
 import { similaritySearchBySources } from "@/lib/vector-store"
-import type { Personality } from "@/lib/chatbot-config"
 
 export const runtime = "nodejs"
 
@@ -11,17 +10,39 @@ const MAX_CONTEXT_CHUNKS = 5
 const SIMILARITY_THRESHOLD = 0.45
 const ESCALATE_MARKER = "[ESCALATE]"
 
-function getOpenAI(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  
-  return new OpenAI({
-    apiKey, 
-    baseURL: "https://openrouter.ai/api/v1",
-    defaultHeaders: {
-      "HTTP-Referer": "http://localhost:3000", 
-      "X-Title": "OneDesk AI Build",         
-    }
+async function getAIConfig(workspaceId: string): Promise<{ client: OpenAI; model: string }> {
+  const settings = await db.workspaceSettings.findUnique({
+    where: { workspaceId },
+    select: { aiProvider: true, aiModel: true, aiApiKey: true },
   })
+
+  const provider = settings?.aiProvider ?? "OPENROUTER"
+  const model =
+    settings?.aiModel ??
+    process.env.AI_MODEL ??
+    "meta-llama/llama-3.3-70b-instruct:free"
+  const apiKey = settings?.aiApiKey ?? process.env.OPENAI_API_KEY ?? ""
+
+  if (!apiKey) {
+    throw new Error("No AI API key configured. Go to Settings → AI Configuration and add your API key.")
+  }
+
+  if (provider === "OPENAI") {
+    return { client: new OpenAI({ apiKey }), model }
+  }
+
+  // OPENROUTER (default) — also used as fallback for ANTHROPIC since we use OpenAI-compat SDK
+  return {
+    client: new OpenAI({
+      apiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: {
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+        "X-Title": "SupportIQ",
+      },
+    }),
+    model,
+  }
 }
 
 function buildSystemMessage(
@@ -66,7 +87,11 @@ export async function POST(req: NextRequest) {
   // ── Fetch chatbot config ────────────────────────────────────────────────────
   const chatbot = await db.chatbot.findUnique({
     where: { id: chatbotId },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      systemPrompt: true,
+      workspaceId: true,
       knowledgeSources: {
         select: { knowledgeSourceId: true },
         where: { knowledgeSource: { status: "READY" } },
@@ -120,9 +145,17 @@ export async function POST(req: NextRequest) {
 
   const hasKnowledgeBase = sourceIds.length > 0
 
-  // ── Use environment config (static) ─────────────────────────────────────────
-  const openai = getOpenAI()
-  const aiModel = process.env.AI_MODEL || "meta-llama/llama-3.3-70b-instruct:free"
+  // ── Resolve AI client from workspace settings (DB) with env fallback ────────
+  let openai: OpenAI
+  let aiModel: string
+  try {
+    const cfg = await getAIConfig(chatbot.workspaceId)
+    openai = cfg.client
+    aiModel = cfg.model
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "AI not configured"
+    return Response.json({ error: msg }, { status: 503 })
+  }
 
   const chatParams = {
     model: aiModel,
