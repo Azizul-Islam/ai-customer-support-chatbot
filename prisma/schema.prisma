@@ -62,6 +62,8 @@ model Workspace {
   knowledgeSources KnowledgeSource[]
   chatbots         Chatbot[]
   sessions         ChatSession[]
+  settings         WorkspaceSettings?
+  apiKeys          ApiKey[]
 }
 
 model User {
@@ -73,6 +75,7 @@ model User {
   updatedAt     DateTime @updatedAt
 
   memberships WorkspaceMember[]
+  settings     UserSettings?
 }
 
 // Join table — one user can belong to many workspaces with different roles
@@ -213,4 +216,63 @@ model ChatbotKnowledgeSource {
 
   @@id([chatbotId, knowledgeSourceId])
   @@index([knowledgeSourceId])
+}
+
+// ─── Settings Models ───────────────────────────────────────────────────────────
+
+model WorkspaceSettings {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaceId String  @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Appearance settings
+  primaryColor    String @default("#6366f1")
+  backgroundColor String @default("#ffffff")
+  fontFamily      String @default("inter")
+
+  // Notification settings (JSON)
+  notifications Json @default("{}")
+
+  @@index([workspaceId])
+}
+
+model UserSettings {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Profile
+  avatarUrl String?
+
+  // Notification preferences
+  emailNotifications   Boolean @default(true)
+  pushNotifications    Boolean @default(true)
+  notificationFrequency String  @default("instant")
+
+  // Appearance
+  theme String @default("system")
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  keyPrefix   String
+  lastUsedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([createdAt])
 }
