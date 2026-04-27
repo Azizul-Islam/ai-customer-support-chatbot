@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ChatBuilder — AI Chatbot Platform",
-  description: "Build and deploy AI chatbots powered by your knowledge base",
+  title: "SupportIQ — AI Customer Support Platform",
+  description: "Build and deploy AI support bots powered by your knowledge base. Live in minutes, no engineers required.",
 };
 
 export default function RootLayout({

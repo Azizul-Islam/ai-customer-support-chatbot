@@ -1,5 +1,5 @@
 /*!
- * ChatBuilder Loader v1.0
+ * SupportIQ Loader v1.0
  * Inject via: <script src="https://your-app.com/loader.js" data-chatbot-id="YOUR_ID"></script>
  */
 (function () {

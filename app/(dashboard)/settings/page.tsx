@@ -7,7 +7,7 @@ import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { AiSettings } from "@/components/settings/ai-settings"
 
 export const metadata = {
-  title: "Settings — ChatBuilder",
+  title: "Settings — SupportIQ",
 }
 
 const sections = [

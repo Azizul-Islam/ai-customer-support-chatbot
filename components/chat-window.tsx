@@ -432,7 +432,7 @@ export function ChatWindow({
           </div>
         )}
         <p className="mt-2 text-center text-[10px] text-gray-300">
-          Powered by <span className="font-medium text-gray-400">ChatBuilder</span>
+          Powered by <span className="font-medium text-gray-400">SupportIQ</span>
         </p>
       </div>
     </div>

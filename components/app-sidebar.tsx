@@ -29,7 +29,7 @@ export function AppSidebar() {
       <div className="flex h-16 shrink-0 items-center gap-2.5 px-6">
         <MessageSquareMore className="size-6 text-sidebar-primary" />
         <span className="text-base font-semibold tracking-tight text-sidebar-foreground">
-          ChatBuilder
+          SupportIQ
         </span>
       </div>
 

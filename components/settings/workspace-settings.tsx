@@ -61,7 +61,7 @@ export function WorkspaceSettings({ initialData }: WorkspaceSettingsProps) {
         <div className="space-y-2">
           <Label className="text-sm font-medium">Workspace URL</Label>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">onedesk.app/</span>
+            <span className="text-sm text-muted-foreground">supportiq.app/</span>
             <Input
               value={initialData.slug}
               disabled
