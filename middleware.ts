@@ -4,7 +4,7 @@ import { jwtVerify } from "jose"
 const COOKIE_NAME = "sk_session"
 
 // Routes the middleware guards — everything under /dashboard
-const PROTECTED_PREFIXES = ["/dashboard", "/knowledge-base", "/chatbots", "/settings"]
+const PROTECTED_PREFIXES = ["/dashboard", "/knowledge-base", "/chatbots", "/settings", "/conversations"]
 
 // Routes that authenticated users should not revisit
 const AUTH_ROUTES = ["/login"]

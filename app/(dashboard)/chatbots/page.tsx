@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { redirect } from "next/navigation"
 import { Bot, Plus, Zap, Settings, Circle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,6 +10,9 @@ import { PERSONALITY_META } from "@/lib/chatbot-config"
 
 export default async function ChatbotsPage() {
   const ctx = await getOrProvisionWorkspace()
+  if (!ctx) redirect("/login")
+  if (ctx.role === "MEMBER") redirect("/conversations")
+
   const chatbots = ctx
     ? await db.chatbot.findMany({
         where: { workspaceId: ctx.workspace.id },

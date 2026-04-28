@@ -13,16 +13,24 @@ import {
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
-  { href: "/chatbots", label: "Chatbots", icon: Bot },
-  { href: "/conversations", label: "Conversations", icon: MessageSquare },
-  { href: "/settings", label: "Settings", icon: Settings },
+const allNavItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, minRole: "ADMIN" },
+  { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen, minRole: "ADMIN" },
+  { href: "/chatbots", label: "Chatbots", icon: Bot, minRole: "ADMIN" },
+  { href: "/conversations", label: "Conversations", icon: MessageSquare, minRole: "MEMBER" },
+  { href: "/settings", label: "Settings", icon: Settings, minRole: "ADMIN" },
 ]
 
-export function AppSidebar() {
+const roleRank: Record<string, number> = { OWNER: 3, ADMIN: 2, MEMBER: 1 }
+
+function hasAccess(userRole: string, minRole: string): boolean {
+  return (roleRank[userRole] ?? 0) >= (roleRank[minRole] ?? 0)
+}
+
+export function AppSidebar({ role = "MEMBER" }: { role?: string }) {
   const pathname = usePathname()
+
+  const navItems = allNavItems.filter((item) => hasAccess(role, item.minRole))
 
   return (
     <aside className="flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar">

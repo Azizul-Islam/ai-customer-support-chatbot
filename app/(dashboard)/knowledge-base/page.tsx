@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation"
 import { getOrProvisionWorkspace } from "@/lib/workspace"
 import { db } from "@/lib/db"
 import { KnowledgeBaseManager } from "@/components/knowledge-base-manager"
@@ -5,6 +6,8 @@ import type { KnowledgeSourceRow } from "@/components/knowledge-base-manager"
 
 export default async function KnowledgeBasePage() {
   const ctx = await getOrProvisionWorkspace()
+  if (!ctx) redirect("/login")
+  if (ctx.role === "MEMBER") redirect("/conversations")
 
   const sources: KnowledgeSourceRow[] = ctx
     ? (

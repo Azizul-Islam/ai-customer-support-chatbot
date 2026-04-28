@@ -1,10 +1,13 @@
-import { Settings, Building2, Bell, Palette, Bot } from "lucide-react"
-import { notFound } from "next/navigation"
+import { Settings, Building2, Bell, Palette, Bot, Users } from "lucide-react"
+import { notFound, redirect } from "next/navigation"
 import { loadSettingsData } from "@/app/actions/settings-loader"
 import { WorkspaceSettings } from "@/components/settings/workspace-settings"
+import { MembersSettings } from "@/components/settings/members-settings"
 import { NotificationSettings } from "@/components/settings/notification-settings"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { AiSettings } from "@/components/settings/ai-settings"
+import { listMembers } from "@/app/actions/members"
+import { getOrProvisionWorkspace } from "@/lib/workspace"
 
 export const metadata = {
   title: "Settings — SupportIQ",
@@ -16,6 +19,12 @@ const sections = [
     icon: Building2,
     title: "Workspace",
     description: "Manage your workspace details",
+  },
+  {
+    id: "members",
+    icon: Users,
+    title: "Team Members",
+    description: "Manage who can access this workspace",
   },
   {
     id: "ai",
@@ -38,8 +47,14 @@ const sections = [
 ]
 
 export default async function SettingsPage() {
+  const ctx = await getOrProvisionWorkspace()
+  if (!ctx) redirect("/login")
+  if (ctx.role === "MEMBER") redirect("/conversations")
+
   const data = await loadSettingsData()
   if (!data) notFound()
+
+  const membersData = await listMembers()
 
   return (
     <div className="flex flex-col gap-8 p-8">
@@ -74,6 +89,15 @@ export default async function SettingsPage() {
                 name: data.workspace.name,
                 slug: data.workspace.slug,
               }}
+            />
+          </div>
+
+          <div className="my-8 border-t" />
+
+          <div id="members">
+            <MembersSettings
+              initialMembers={membersData.members ?? []}
+              initialRole={membersData.currentRole ?? "MEMBER"}
             />
           </div>
 

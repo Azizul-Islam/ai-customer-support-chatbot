@@ -1,4 +1,6 @@
 import { LayoutDashboard, Bot, BookOpen, MessageSquare } from "lucide-react"
+import { redirect } from "next/navigation"
+import { getOrProvisionWorkspace } from "@/lib/workspace"
 
 const stats = [
   { label: "Total Chatbots", value: "0", icon: Bot },
@@ -6,7 +8,11 @@ const stats = [
   { label: "Conversations", value: "0", icon: MessageSquare },
 ]
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const ctx = await getOrProvisionWorkspace()
+  if (!ctx) redirect("/login")
+  if (ctx.role === "MEMBER") redirect("/conversations")
+
   return (
     <div className="flex flex-col gap-8 p-8">
       <div className="flex items-center gap-3">
