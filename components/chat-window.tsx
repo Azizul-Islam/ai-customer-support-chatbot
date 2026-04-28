@@ -8,7 +8,7 @@ import { cn, getInitials } from "@/lib/utils"
 
 interface Message {
   id: string
-  role: "bot" | "user"
+  role: "bot" | "user" | "human_agent" | "system"
   text: string
   streaming?: boolean
   ts: Date
@@ -114,41 +114,60 @@ function TypingDots({ color }: { color: string }) {
 
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
+function SystemNotice({ msg }: { msg: Message }) {
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <div className="h-px flex-1 bg-gray-200" />
+      <p className="shrink-0 rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-[11px] text-gray-500">
+        {msg.text}
+      </p>
+      <div className="h-px flex-1 bg-gray-200" />
+    </div>
+  )
+}
+
 function BotBubble({
   msg,
   initial,
   primaryColor,
   textColor,
   showTyping,
+  isHumanAgent,
 }: {
   msg: Message
   initial: string
   primaryColor: string
   textColor: string
   showTyping: boolean
+  isHumanAgent?: boolean
 }) {
+  const avatarBg = isHumanAgent ? "#475569" : primaryColor
+  const avatarColor = isHumanAgent ? "#ffffff" : textColor
+  const bubbleBg = isHumanAgent ? "#f1f5f9" : primaryColor
+  const bubbleText = isHumanAgent ? "#1e293b" : textColor
+
   return (
     <div className="flex items-end gap-2.5 pr-10">
       <div
         className="flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold shadow-sm"
-        style={{ backgroundColor: primaryColor, color: textColor }}
+        style={{ backgroundColor: avatarBg, color: avatarColor }}
       >
         {initial}
       </div>
       <div className="flex flex-col gap-1">
         <div
           className="rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed shadow-sm"
-          style={{ backgroundColor: primaryColor, color: textColor }}
+          style={{ backgroundColor: bubbleBg, color: bubbleText }}
         >
           {showTyping && !msg.text ? (
-            <TypingDots color={textColor} />
+            <TypingDots color={bubbleText} />
           ) : (
             <>
               {msg.text}
               {msg.streaming && msg.text && (
                 <span
                   className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse rounded-full align-middle"
-                  style={{ backgroundColor: textColor, opacity: 0.6 }}
+                  style={{ backgroundColor: bubbleText, opacity: 0.6 }}
                 />
               )}
             </>
@@ -199,6 +218,7 @@ export function ChatWindow({
   const [mode, setMode] = useState<"ai" | "human">(initialMode === "human" ? "human" : "ai")
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [lastMessageId, setLastMessageId] = useState<string>("")
+  const [humanNoticeSent, setHumanNoticeSent] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -242,7 +262,7 @@ export function ChatWindow({
               ...p,
               {
                 id: latestMsg.id,
-                role: "bot" as const,
+                role: "human_agent" as const,
                 text: latestMsg.content,
                 ts: new Date(latestMsg.createdAt),
               },
@@ -261,9 +281,33 @@ export function ChatWindow({
     const text = input.trim()
     if (!text || busy || escalated) return
     setInput("")
-    setBusy(true)
 
     const userMsg: Message = { id: uid(), role: "user", text, ts: new Date() }
+
+    // Human mode: save message silently, show one-time notice
+    if (mode === "human") {
+      const newMsgs: Message[] = [userMsg]
+      if (!humanNoticeSent) {
+        newMsgs.push({
+          id: uid(),
+          role: "system",
+          text: "Your message has been sent. A human agent will reply shortly.",
+          ts: new Date(),
+        })
+        setHumanNoticeSent(true)
+      }
+      setMessages((p) => [...p, ...newMsgs])
+      fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatbotId, message: text, ...(activeSessionId ? { sessionId: activeSessionId } : {}) }),
+      }).catch(() => {})
+      inputRef.current?.focus()
+      return
+    }
+
+    // AI mode
+    setBusy(true)
     const botId = uid()
     const botMsg: Message = { id: botId, role: "bot", text: "", streaming: true, ts: new Date() }
     setMessages((p) => [...p, userMsg, botMsg])
@@ -280,7 +324,6 @@ export function ChatWindow({
         setMessages((p) =>
           p.map((m) => {
             if (m.id !== botId) return m
-            // Strip marker if it leaked into the streamed text
             const clean = m.text.replace(/\[ESCALATE\]\s*$/, "").trimEnd()
             return { ...m, text: clean, streaming: false }
           })
@@ -350,7 +393,12 @@ export function ChatWindow({
           </div>
           <button
             type="button"
-            onClick={() => setMode((m) => (m === "ai" ? "human" : "ai"))}
+            onClick={() => {
+              setMode((m) => {
+                if (m === "ai") { setHumanNoticeSent(false); return "human" }
+                return "ai"
+              })
+            }}
             className="rounded-full p-1.5 transition-colors hover:bg-black/10"
             style={{ color: textColor }}
             aria-label="Switch mode"
@@ -377,6 +425,18 @@ export function ChatWindow({
         {messages.map((msg) =>
           msg.role === "user" ? (
             <UserBubble key={msg.id} msg={msg} />
+          ) : msg.role === "system" ? (
+            <SystemNotice key={msg.id} msg={msg} />
+          ) : msg.role === "human_agent" ? (
+            <BotBubble
+              key={msg.id}
+              msg={msg}
+              initial="HA"
+              primaryColor={primaryColor}
+              textColor={textColor}
+              showTyping={false}
+              isHumanAgent
+            />
           ) : (
             <BotBubble
               key={msg.id}

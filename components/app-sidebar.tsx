@@ -68,7 +68,7 @@ export function AppSidebar({ role = "MEMBER" }: { role?: string }) {
       <Separator className="bg-sidebar-border" />
 
       <div className="px-6 py-4">
-        <p className="text-xs text-muted-foreground">OneDesk Support Center</p>
+        <p className="text-xs text-muted-foreground">SupportIQ</p>
         <p className="mt-0.5 text-xs text-muted-foreground/60">v0.1.0</p>
       </div>
     </aside>
