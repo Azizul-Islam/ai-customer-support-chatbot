@@ -1,88 +1,82 @@
-import { NextRequest } from "next/server"
-import OpenAI from "openai"
-import { db } from "@/lib/db"
-import { generateEmbedding } from "@/lib/embeddings"
-import { similaritySearchBySources } from "@/lib/vector-store"
+import { NextRequest } from "next/server";
+import OpenAI from "openai";
+import { db } from "@/lib/db";
+import { generateEmbedding } from "@/lib/embeddings";
+import { similaritySearchBySources } from "@/lib/vector-store";
 
-export const runtime = "nodejs"
+export const runtime = "nodejs";
 
-const MAX_CONTEXT_CHUNKS = 5
-const SIMILARITY_THRESHOLD = 0.45
-const ESCALATE_MARKER = "[ESCALATE]"
+const MAX_CONTEXT_CHUNKS = 5;
+const SIMILARITY_THRESHOLD = 0.45;
+const ESCALATE_MARKER = "[ESCALATE]";
+const MAX_HISTORY_MESSAGES = 20;
 
-async function getAIConfig(workspaceId: string): Promise<{ client: OpenAI; model: string }> {
+async function getAIConfig(
+  workspaceId: string,
+): Promise<{ client: OpenAI; model: string }> {
   const settings = await db.workspaceSettings.findUnique({
     where: { workspaceId },
     select: { aiProvider: true, aiModel: true, aiApiKey: true },
-  })
+  });
 
-  const provider = settings?.aiProvider ?? "OPENROUTER"
-  const model =
-    settings?.aiModel ??
-    process.env.AI_MODEL ??
-    "meta-llama/llama-3.3-70b-instruct:free"
-  const apiKey = settings?.aiApiKey ?? process.env.OPENAI_API_KEY ?? ""
+  const provider = settings?.aiProvider ?? "OPENROUTER";
+  const model = "GPT-4o";
+  // DB key takes priority; fall back to env (works out-of-the-box with .env OpenRouter key)
+  const apiKey = settings?.aiApiKey ?? process.env.OPENAI_API_KEY;
 
-  if (!apiKey) {
-    throw new Error("No AI API key configured. Go to Settings → AI Configuration and add your API key.")
-  }
-
-  if (provider === "OPENAI") {
-    return { client: new OpenAI({ apiKey }), model }
-  }
-
-  // OPENROUTER (default) — also used as fallback for ANTHROPIC since we use OpenAI-compat SDK
+  // OPENROUTER (default) — also fallback for ANTHROPIC (OpenAI-compat SDK)
   return {
     client: new OpenAI({
       apiKey,
       baseURL: "https://openrouter.ai/api/v1",
       defaultHeaders: {
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+        "HTTP-Referer":
+          process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
         "X-Title": "SupportIQ",
       },
     }),
     model,
-  }
+  };
 }
 
 function buildSystemMessage(
   systemPrompt: string,
   contextChunks: string[],
-  hasKnowledgeBase: boolean
+  hasKnowledgeBase: boolean,
 ): string {
-  let prompt = systemPrompt
+  let prompt = systemPrompt;
 
   if (contextChunks.length > 0) {
-    const context = contextChunks.map((c, i) => `[${i + 1}] ${c}`).join("\n\n")
-    prompt += `\n\n---\nKNOWLEDGE BASE CONTEXT:\n${context}\n---\nUse the context above to answer questions when relevant. Never fabricate specific facts about the product.`
+    const context = contextChunks.map((c, i) => `[${i + 1}] ${c}`).join("\n\n");
+    prompt += `\n\n---\nKNOWLEDGE BASE CONTEXT:\n${context}\n---\nUse the context above to answer questions when relevant. Never fabricate specific facts about the product.`;
   }
 
   if (hasKnowledgeBase) {
-    prompt += `\n\nIMPORTANT: If you cannot confidently answer the question from the provided context or your knowledge, append the exact text "${ESCALATE_MARKER}" at the very end of your response with no text after it. Omit it entirely if you can answer confidently.`
+    prompt += `\n\nIMPORTANT: If you cannot confidently answer the question from the provided context or your knowledge, append the exact text "${ESCALATE_MARKER}" at the very end of your response with no text after it. Omit it entirely if you can answer confidently.`;
   }
 
-  return prompt
+  return prompt;
 }
 
 export async function POST(req: NextRequest) {
   // ── Parse & validate ────────────────────────────────────────────────────────
-  let body: unknown
+  let body: unknown;
   try {
-    body = await req.json()
+    body = await req.json();
   } catch {
-    return Response.json({ error: "Invalid JSON" }, { status: 400 })
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { message, chatbotId, sessionId } = body as Record<string, unknown>
+  const { message, chatbotId, sessionId } = body as Record<string, unknown>;
 
   if (typeof message !== "string" || !message.trim()) {
-    return Response.json({ error: "message is required" }, { status: 400 })
+    return Response.json({ error: "message is required" }, { status: 400 });
   }
   if (typeof chatbotId !== "string" || !chatbotId.trim()) {
-    return Response.json({ error: "chatbotId is required" }, { status: 400 })
+    return Response.json({ error: "chatbotId is required" }, { status: 400 });
   }
 
-  const trimmedMessage = message.trim()
+  const trimmedMessage = message.trim();
 
   // ── Fetch chatbot config ────────────────────────────────────────────────────
   const chatbot = await db.chatbot.findUnique({
@@ -97,64 +91,115 @@ export async function POST(req: NextRequest) {
         where: { knowledgeSource: { status: "READY" } },
       },
     },
-  })
+  });
 
   if (!chatbot) {
-    return Response.json({ error: "Chatbot not found" }, { status: 404 })
+    return Response.json({ error: "Chatbot not found" }, { status: 404 });
   }
 
   const systemPrompt =
     chatbot.systemPrompt ??
-    `You are ${chatbot.name}, a helpful support assistant. Be concise and accurate.`
+    `You are ${chatbot.name}, a helpful support assistant. Be concise and accurate.`;
 
   // ── Resolve session (optional) ──────────────────────────────────────────────
   // Session must belong to this chatbot — prevents cross-chatbot message injection.
-  let session: { id: string } | null = null
+  let session: { id: string; status: string } | null = null;
   if (typeof sessionId === "string" && sessionId.trim()) {
     session = await db.chatSession.findFirst({
       where: { id: sessionId.trim(), chatbotId },
-      select: { id: true },
-    })
+      select: { id: true, status: true },
+    });
+  }
+
+  // ── If human agent is active, skip AI — just save user message silently ─────
+  if (session && session.status === "HUMAN_REQUIRED") {
+    await db.chatMessage.create({
+      data: { sessionId: session.id, role: "user", content: trimmedMessage },
+    });
+
+    const waitingMsg = "Your message has been sent. A human agent will reply shortly.";
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ content: waitingMsg })}\n\n`,
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ done: true, humanRequired: false })}\n\n`,
+          ),
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
+  // ── Fetch conversation history for memory ──────────────────────────────────
+  const previousMessages: { role: "user" | "assistant"; content: string }[] = [];
+  if (session) {
+    const history = await db.chatMessage.findMany({
+      where: { sessionId: session.id },
+      select: { role: true, content: true },
+      orderBy: { createdAt: "asc" },
+      take: MAX_HISTORY_MESSAGES,
+    });
+    for (const m of history) {
+      if (m.role === "user" || m.role === "assistant") {
+        previousMessages.push({ role: m.role, content: m.content });
+      }
+    }
   }
 
   // Save user message before streaming so it's persisted even on stream failure
   if (session) {
     await db.chatMessage.create({
       data: { sessionId: session.id, role: "user", content: trimmedMessage },
-    })
+    });
   }
 
   // ── Retrieve RAG context ────────────────────────────────────────────────────
-  const sourceIds = chatbot.knowledgeSources.map((s) => s.knowledgeSourceId)
-  let contextChunks: string[] = []
+  const sourceIds = chatbot.knowledgeSources.map((s) => s.knowledgeSourceId);
+  let contextChunks: string[] = [];
 
   if (sourceIds.length > 0) {
     try {
-      const queryEmbedding = await generateEmbedding(trimmedMessage)
+      const queryEmbedding = await generateEmbedding(trimmedMessage);
       const chunks = await similaritySearchBySources(
         queryEmbedding,
         sourceIds,
         MAX_CONTEXT_CHUNKS,
-        SIMILARITY_THRESHOLD
-      )
-      contextChunks = chunks.map((c) => c.content)
+        SIMILARITY_THRESHOLD,
+      );
+      contextChunks = chunks.map((c) => c.content);
     } catch {
       // Non-fatal — continue without context
     }
   }
 
-  const hasKnowledgeBase = sourceIds.length > 0
+  const hasKnowledgeBase = sourceIds.length > 0;
 
   // ── Resolve AI client from workspace settings (DB) with env fallback ────────
-  let openai: OpenAI
-  let aiModel: string
+  let openai: OpenAI;
+  let aiModel: string;
   try {
-    const cfg = await getAIConfig(chatbot.workspaceId)
-    openai = cfg.client
-    aiModel = cfg.model
+    const cfg = await getAIConfig(chatbot.workspaceId);
+    openai = cfg.client;
+    aiModel = cfg.model;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "AI not configured"
-    return Response.json({ error: msg }, { status: 503 })
+    const msg = err instanceof Error ? err.message : "AI not configured";
+    return Response.json({ error: msg }, { status: 503 });
   }
 
   const chatParams = {
@@ -165,73 +210,81 @@ export async function POST(req: NextRequest) {
     messages: [
       {
         role: "system" as const,
-        content: buildSystemMessage(systemPrompt, contextChunks, hasKnowledgeBase),
+        content: buildSystemMessage(
+          systemPrompt,
+          contextChunks,
+          hasKnowledgeBase,
+        ),
       },
+      ...previousMessages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
       { role: "user" as const, content: trimmedMessage },
     ],
-  }
+  };
 
-  let openaiStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>
+  let openaiStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
   try {
     // Retry up to 3 times on 429 rate-limit responses (common with free OpenRouter models)
-    let lastErr: unknown
+    let lastErr: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        openaiStream = await openai.chat.completions.create(chatParams)
-        lastErr = undefined
-        break
+        openaiStream = await openai.chat.completions.create(chatParams);
+        lastErr = undefined;
+        break;
       } catch (err) {
-        lastErr = err
-        const status = (err as { status?: number })?.status
-        if (status !== 429 || attempt === 2) break
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+        lastErr = err;
+        const status = (err as { status?: number })?.status;
+        if (status !== 429 || attempt === 2) break;
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       }
     }
-    if (lastErr) throw lastErr
+    if (lastErr) throw lastErr;
   } catch (err) {
-    console.error("[Chat] AI Error:", err)
-    const status = (err as { status?: number })?.status
-    const msg = err instanceof Error ? err.message : "AI error"
+    console.error("[Chat] AI Error:", err);
+    const status = (err as { status?: number })?.status;
+    const msg = err instanceof Error ? err.message : "AI error";
     if (status === 429) {
       return Response.json(
         { error: "The AI model is busy. Please try again in a moment." },
-        { status: 429 }
-      )
+        { status: 429 },
+      );
     }
-    return Response.json({ error: msg }, { status: 502 })
+    return Response.json({ error: msg }, { status: 502 });
   }
 
   // ── SSE stream ──────────────────────────────────────────────────────────────
-  const encoder = new TextEncoder()
+  const encoder = new TextEncoder();
 
   const readable = new ReadableStream({
     async start(controller) {
-      let fullResponse = ""
+      let fullResponse = "";
 
       try {
         for await (const chunk of openaiStream) {
-          const token = chunk.choices[0]?.delta?.content
+          const token = chunk.choices[0]?.delta?.content;
           if (token) {
-            fullResponse += token
+            fullResponse += token;
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ content: token })}\n\n`)
-            )
+              encoder.encode(`data: ${JSON.stringify({ content: token })}\n\n`),
+            );
           }
         }
 
         // Detect escalation marker in the complete response
-        const markerIdx = fullResponse.lastIndexOf(ESCALATE_MARKER)
-        const humanRequired = markerIdx !== -1
+        const markerIdx = fullResponse.lastIndexOf(ESCALATE_MARKER);
+        const humanRequired = markerIdx !== -1;
         const cleanResponse = humanRequired
           ? fullResponse.slice(0, markerIdx).trimEnd()
-          : fullResponse
+          : fullResponse;
 
         controller.enqueue(
           encoder.encode(
-            `data: ${JSON.stringify({ done: true, humanRequired })}\n\n`
-          )
-        )
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+            `data: ${JSON.stringify({ done: true, humanRequired })}\n\n`,
+          ),
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
 
         // ── Post-stream DB writes ─────────────────────────────────────────────
         if (session && cleanResponse) {
@@ -241,25 +294,25 @@ export async function POST(req: NextRequest) {
               role: "assistant",
               content: cleanResponse,
             },
-          })
+          });
 
           if (humanRequired) {
             await db.chatSession.update({
               where: { id: session.id },
               data: { status: "HUMAN_REQUIRED" },
-            })
+            });
           }
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Stream error"
+        const msg = err instanceof Error ? err.message : "Stream error";
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
-        )
+          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`),
+        );
       } finally {
-        controller.close()
+        controller.close();
       }
     },
-  })
+  });
 
   return new Response(readable, {
     headers: {
@@ -268,5 +321,5 @@ export async function POST(req: NextRequest) {
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
-  })
+  });
 }

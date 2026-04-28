@@ -7,23 +7,12 @@ export const EMBEDDING_DIMENSIONS = 1536
 // Singleton — reuses the same HTTP client across requests in dev hot-reload
 const globalForOpenAI = globalThis as unknown as { openai?: OpenAI }
 
-// Embeddings require a real OpenAI key (EMBED_API_KEY) or a plain OpenAI key.
-// OpenRouter keys (sk-or-v1-*) cannot call text-embedding-3-small.
-// If only an OpenRouter key is available, generateEmbedding throws and the
-// caller's non-fatal catch block skips RAG context — chat still works.
 function getClient(): OpenAI {
-  const embedKey = process.env.EMBED_API_KEY ?? process.env.OPENAI_API_KEY ?? ""
-  const isOpenRouterKey = embedKey.startsWith("sk-or-v1-")
-
-  if (isOpenRouterKey) {
-    throw new Error(
-      "Embeddings require an OpenAI API key. Set EMBED_API_KEY in .env with a real OpenAI key, " +
-        "or add knowledge-base support by upgrading your plan."
-    )
-  }
-
   if (!globalForOpenAI.openai) {
-    globalForOpenAI.openai = new OpenAI({ apiKey: embedKey })
+    globalForOpenAI.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+    })
   }
   return globalForOpenAI.openai
 }

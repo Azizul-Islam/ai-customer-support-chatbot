@@ -119,17 +119,17 @@ function ThreadView({
 
   const handleSend = () => {
     if (!input.trim() || sending) return
+    const text = input.trim()
     startSend(async () => {
-      await sendHumanAgentMessage(session.id, input.trim())
+      await sendHumanAgentMessage(session.id, text)
       const newMsg: MessageRow = {
         id: crypto.randomUUID(),
         role: "human_agent",
-        content: input.trim(),
+        content: text,
         createdAt: new Date(),
       }
       setMessagesLocal((prev) => [...prev, newMsg])
       setInput("")
-      onResolve()
     })
   }
 
@@ -183,10 +183,10 @@ function ThreadView({
 
       {/* Messages */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto bg-gray-50 px-4 py-4">
-        {messages.length === 0 ? (
+        {messagesLocal.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground">No messages yet.</p>
         ) : (
-          messages.map((msg) => (
+          messagesLocal.map((msg) => (
             <div
               key={msg.id}
               className={cn(

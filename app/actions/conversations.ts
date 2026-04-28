@@ -121,10 +121,5 @@ export async function sendHumanAgentMessage(
     },
   })
 
-  await db.chatSession.update({
-    where: { id: sessionId },
-    data: { status: "HUMAN_RESOLVED" },
-  })
-
   return { ok: true }
 }
