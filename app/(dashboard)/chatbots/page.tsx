@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getOrProvisionWorkspace } from "@/lib/workspace"
 import { db } from "@/lib/db"
+import { getInitials } from "@/lib/utils"
 import type { Personality } from "@/lib/chatbot-config"
 import { PERSONALITY_META } from "@/lib/chatbot-config"
 
@@ -71,7 +72,7 @@ export default async function ChatbotsPage() {
                         className="flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
                         style={{ backgroundColor: color }}
                       >
-                        {bot.name.charAt(0).toUpperCase()}
+                        {getInitials(bot.name)}
                       </div>
                       <CardTitle className="line-clamp-1">{bot.name}</CardTitle>
                     </div>

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 import {
   type Personality,
   PERSONALITY_META,
@@ -257,7 +257,7 @@ export function ChatbotCustomizer({
   const primaryColor = isValidHex(config.primaryColor) ? config.primaryColor : "#6366f1"
   const textColor = useMemo(() => contrastColor(primaryColor), [primaryColor])
   const tint = useMemo(() => tintColor(primaryColor), [primaryColor])
-  const initial = (config.botName || "B").charAt(0).toUpperCase()
+  const initial = getInitials(config.botName, "B")
   const previewMessages = PREVIEW_CONVERSATIONS[config.personality]
   const meta = PERSONALITY_META[config.personality]
 

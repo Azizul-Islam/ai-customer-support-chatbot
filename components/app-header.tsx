@@ -1,18 +1,9 @@
 import Link from "next/link"
 import { LogOut } from "lucide-react"
 import { getSession } from "@/lib/session"
+import { getInitials } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-
-function getInitials(name?: string | null, email?: string): string {
-  if (name) {
-    const parts = name.trim().split(/\s+/)
-    return parts.length >= 2
-      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-      : parts[0].slice(0, 2).toUpperCase()
-  }
-  return (email ?? "U").slice(0, 2).toUpperCase()
-}
 
 export async function AppHeader() {
   const session = await getSession()

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { db } from "@/lib/db"
+import { getInitials } from "@/lib/utils"
 import { ChatWindow, FloatingChatWidget } from "@/components/chat-window"
 import type { Personality } from "@/lib/chatbot-config"
 
@@ -59,7 +60,7 @@ export default async function ChatbotIframePage({
           className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl text-xl font-bold text-white shadow-lg"
           style={{ backgroundColor: config.primaryColor }}
         >
-          {config.botName.charAt(0).toUpperCase()}
+          {getInitials(config.botName)}
         </div>
         <h1 className="text-xl font-semibold text-gray-800">{config.botName}</h1>
         <p className="mt-1.5 text-sm text-gray-500">

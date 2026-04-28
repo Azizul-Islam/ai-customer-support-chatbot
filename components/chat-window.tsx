@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Send, Loader2, Minimize2, User, Bot } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ function BotBubble({
   return (
     <div className="flex items-end gap-2.5 pr-10">
       <div
-        className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold shadow-sm"
+        className="flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold shadow-sm"
         style={{ backgroundColor: primaryColor, color: textColor }}
       >
         {initial}
@@ -188,7 +188,7 @@ export function ChatWindow({
   const { chatbotId, botName, welcomeMessage, primaryColor, mode: initialMode } = config
   const textColor = contrastColor(primaryColor)
   const rgb = hexToRgb(primaryColor)
-  const initial = (botName || "B").charAt(0).toUpperCase()
+  const botInitial = getInitials(botName, "B")
 
   const [messages, setMessages] = useState<Message[]>([
     { id: uid(), role: "bot", text: welcomeMessage || "Hi! How can I help you?", ts: new Date() },
@@ -335,7 +335,7 @@ export function ChatWindow({
             className="flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold shadow-md"
             style={{ backgroundColor: `rgba(${textColor === "#ffffff" ? "255,255,255" : "0,0,0"},0.15)`, color: textColor }}
           >
-            {initial}
+            {botInitial}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold leading-tight" style={{ color: textColor }}>
@@ -381,7 +381,7 @@ export function ChatWindow({
             <BotBubble
               key={msg.id}
               msg={msg}
-              initial={initial}
+              initial={botInitial}
               primaryColor={primaryColor}
               textColor={textColor}
               showTyping={!!msg.streaming}

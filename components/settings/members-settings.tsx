@@ -12,6 +12,7 @@ import {
   removeMember,
   updateMemberRole,
 } from "@/app/actions/members"
+import { getInitials } from "@/lib/utils"
 import type { MemberRow } from "@/app/actions/members"
 
 function roleBadge(role: string) {
@@ -126,7 +127,7 @@ export function MembersSettings({
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium">
-                {(m.name ?? m.email)[0].toUpperCase()}
+                {getInitials(m.name, m.email)}
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">

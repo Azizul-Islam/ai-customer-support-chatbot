@@ -6,16 +6,13 @@ import {
   MessageSquare,
   AlertCircle,
   CheckCircle2,
-  Bot,
-  User,
-  Headphones,
   RefreshCw,
   ChevronLeft,
   Send,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, getInitials } from "@/lib/utils"
 import { getSessionMessages, resolveSession, sendHumanAgentMessage } from "@/app/actions/conversations"
 import type { SessionRow, MessageRow } from "@/app/actions/conversations"
 
@@ -45,10 +42,10 @@ function StatusBadge({ status }: { status: SessionRow["status"] }) {
   )
 }
 
-function RoleIcon({ role }: { role: MessageRow["role"] }) {
-  if (role === "user") return <User className="size-3.5" />
-  if (role === "human_agent") return <Headphones className="size-3.5" />
-  return <Bot className="size-3.5" />
+function RoleInitial({ role, chatbotName }: { role: MessageRow["role"]; chatbotName?: string }) {
+  if (role === "user") return <span className="text-[10px] font-bold">YO</span>
+  if (role === "human_agent") return <span className="text-[10px] font-bold">HA</span>
+  return <span className="text-[10px] font-bold">{getInitials(chatbotName, "B")}</span>
 }
 
 // ── Session list item ─────────────────────────────────────────────────────────
@@ -201,7 +198,7 @@ function ThreadView({
                     msg.role === "human_agent" ? "bg-purple-500" : "bg-primary"
                   )}
                 >
-                  <RoleIcon role={msg.role} />
+                  <RoleInitial role={msg.role} chatbotName={session.chatbotName} />
                 </div>
               )}
               <div
@@ -224,7 +221,7 @@ function ThreadView({
               </div>
               {msg.role === "user" && (
                 <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-gray-500 text-white">
-                  <RoleIcon role={msg.role} />
+                  <RoleInitial role={msg.role} />
                 </div>
               )}
             </div>
